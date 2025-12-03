@@ -1,6 +1,6 @@
 package link.rdcn.server
 
-import java.beans.BeanProperty
+import scala.beans._
 import java.io.File
 import java.security.{PrivateKey, PublicKey}
 import scala.collection.convert.ImplicitConversions.`map AsScala`

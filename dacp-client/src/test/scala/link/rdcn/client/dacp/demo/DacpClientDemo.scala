@@ -175,7 +175,7 @@ object DacpClientDemo {
     tmpDir.toString
   }
 
-  @BeforeAll
+//  @BeforeAll
   def startServer(): Unit = {
     val modules = Array(
       new BaseDftpModule,
@@ -189,7 +189,7 @@ object DacpClientDemo {
     server = DftpServer.start(DftpServerConfig("0.0.0.0", 3103).withProtocolScheme("dacp"), modules)
   }
 
-  @AfterAll
+//  @AfterAll
   def closeServer(): Unit = {
     server.close()
   }
@@ -200,7 +200,7 @@ class DacpClientDemo {
 
   @Test
   def catalogModuleTest(): Unit = {
-    val dc = DacpClient.connect("dacp://0.0.0.0:3102")
+    val dc = DacpClient.connect("dacp://0.0.0.0:3103")
     println("数据帧列表-----------------")
     dc.listDataFrameNames("DataSet").foreach(println)
     println("数据集列表-----------------")
@@ -219,12 +219,12 @@ class DacpClientDemo {
 
   @Test
   def listCatalogTest(): Unit = {
-    val dc = DacpClient.connect("dacp://0.0.0.0:3102", UsernamePassword("admin", "admin"))
-    val dataSets = dc.get("dacp://0.0.0.0:3102/listDataSets")
+    val dc = DacpClient.connect("dacp://0.0.0.0:3103", UsernamePassword("admin", "admin"))
+    val dataSets = dc.get("dacp://0.0.0.0:3103/listDataSets")
     dataSets.foreach(println)
-    val dataFrames = dc.get("dacp://0.0.0.0:3102/listDataFrames/dataset")
+    val dataFrames = dc.get("dacp://0.0.0.0:3103/listDataFrames/dataset")
     dataFrames.foreach(println)
-    val hostInfos = dc.get("dacp://0.0.0.0:3102/listHosts")
+    val hostInfos = dc.get("dacp://0.0.0.0:3103/listHosts")
     hostInfos.foreach(println)
   }
 
@@ -450,7 +450,6 @@ class DacpClientDemo {
 
   @Test
   def vrepositoryDemoTest(): Unit = {
-
     val dc = DacpClient.connect("dacp://0.0.0.0:3103", UsernamePassword("admin", "admin"))
 
     val nodeGullySlop = FlowNode.stocked("gully_slop", Some("0.5.0-20251115-1"))
@@ -833,129 +832,4 @@ class DacpClientDemo {
     val result = dc.cook(recipe)
     result.single().foreach(println)
   }
-
-  //  @Test
-  //  def MMAPtoFIFOFIFOTest(): Unit = {
-  //    val dacpClient = DacpClient.connect("dacp://0.0.0.0:3101", UsernamePassword("test", "test"))
-  //
-  //    val nodeGullySlop = FifoFileBundleFlowNode(
-  //      Seq("python", "/mnt/data/temp2/gully_slop.py"),
-  //      Seq(""),
-  //      Seq("/data2/work/ncdc/faird/temp/temp2/gully_slop_fifo.csv"),
-  //      DockerContainer("jyg-container"),
-  //      FileType.MMAP_FILE,
-  //      FileType.MMAP_FILE
-  //    )
-  //
-  //    val nodeHydro = FifoFileBundleFlowNode(
-  //      Seq("python", "/mnt/data/temp2/hydro_susceptibility.py"),
-  //      Seq("/data2/work/ncdc/faird/temp/temp2/gully_slop_fifo_new.csv"),
-  //      Seq("/data2/work/ncdc/faird/temp/temp2/suscep_hdyro_fifo.csv"),
-  //      DockerContainer("jyg-container"),
-  //      FileType.FIFO_BUFFER,
-  //      FileType.FIFO_BUFFER
-  //    )
-  //
-  //    val fifoFileNode = FifoFileFlowNode("/data2/work/ncdc/faird/temp/temp2/suscep_hdyro_fifo.csv")
-  //
-  //    val recipe = Flow(
-  //      Map(
-  //        "A" -> nodeGullySlop,
-  //        "B" -> nodeHydro,
-  //        "C" -> fifoFileNode
-  //
-  //      ),
-  //      Map(
-  //        "A" -> Seq("B"),
-  //        "B" -> Seq("C")
-  //      )
-  //    )
-  //    val result = dacpClient.execute(recipe)
-  //    result.single().foreach(println)
-  //
-  //  }
-  //
-  //  @Test
-  //  def FIFOtoMMAPMMAPTest(): Unit = {
-  //    val dacpClient = DacpClient.connect("dacp://0.0.0.0:3101", UsernamePassword("test", "test"))
-  //
-  //    val nodeGullySlop = FifoFileBundleFlowNode(
-  //      Seq("python", "/mnt/data/temp2/gully_slop.py"),
-  //      Seq(""),
-  //      Seq("/data2/work/ncdc/faird/temp/temp2/gully_slop_fifo.csv"),
-  //      DockerContainer("jyg-container"),
-  //      FileType.MMAP_FILE,
-  //      FileType.FIFO_BUFFER
-  //    )
-  //
-  //    val nodeHydro = FifoFileBundleFlowNode(
-  //      Seq("python", "/mnt/data/temp2/hydro_susceptibility.py"),
-  //      Seq("/data2/work/ncdc/faird/temp/temp2/gully_slop_fifo_new.csv"),
-  //      Seq("/data2/work/ncdc/faird/temp/temp2/suscep_hdyro_fifo.csv"),
-  //      DockerContainer("jyg-container"),
-  //      FileType.MMAP_FILE,
-  //      FileType.MMAP_FILE
-  //    )
-  //
-  //    val fifoFileNode = FifoFileFlowNode("/data2/work/ncdc/faird/temp/temp2/suscep_hdyro_fifo.csv")
-  //
-  //    val recipe = Flow(
-  //      Map(
-  //        "A" -> nodeGullySlop,
-  //        "B" -> nodeHydro,
-  //        "C" -> fifoFileNode
-  //
-  //      ),
-  //      Map(
-  //        "A" -> Seq("B"),
-  //        "B" -> Seq("C")
-  //      )
-  //    )
-  //    val result = dacpClient.execute(recipe)
-  //    result.single().foreach(println)
-  //
-  //  }
-  //
-  //  @Test
-  //  def FIFOtoMMAPFIFOTest(): Unit = {
-  //    //输出FIFO未删除
-  //    val dacpClient = DacpClient.connect("dacp://0.0.0.0:3101", UsernamePassword("test", "test"))
-  //
-  //    val nodeGullySlop = FifoFileBundleFlowNode(
-  //      Seq("python", "/mnt/data/temp2/gully_slop.py"),
-  //      Seq(""),
-  //      Seq("/data2/work/ncdc/faird/temp/temp2/gully_slop_fifo.csv"),
-  //      DockerContainer("jyg-container"),
-  //      FileType.FIFO_BUFFER,
-  //      FileType.FIFO_BUFFER
-  //    )
-  //
-  //    val nodeHydro = FifoFileBundleFlowNode(
-  //      Seq("python", "/mnt/data/temp2/hydro_susceptibility.py"),
-  //      Seq("/data2/work/ncdc/faird/temp/temp2/gully_slop_fifo_new.csv"),
-  //      Seq("/data2/work/ncdc/faird/temp/temp2/suscep_hdyro_fifo.csv"),
-  //      DockerContainer("jyg-container"),
-  //      FileType.MMAP_FILE,
-  //      FileType.FIFO_BUFFER
-  //    )
-  //
-  //    val fifoFileNode = FifoFileFlowNode("/data2/work/ncdc/faird/temp/temp2/suscep_hdyro_fifo.csv")
-  //
-  //    val recipe = Flow(
-  //      Map(
-  //        "A" -> nodeGullySlop,
-  //        "B" -> nodeHydro,
-  //        "C" -> fifoFileNode
-  //
-  //      ),
-  //      Map(
-  //        "A" -> Seq("B"),
-  //        "B" -> Seq("C")
-  //      )
-  //    )
-  //    val result = dacpClient.execute(recipe)
-  //    result.single().foreach(println)
-  //
-  //  }
-
 }

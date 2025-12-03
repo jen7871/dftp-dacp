@@ -11,8 +11,8 @@ import java.nio.file.Paths
 
 object ServerStart {
   def main(args: Array[String]): Unit = {
-    if (args.length < 1) sys.error("need set Dftp Home")
-    val serverHome = args(0)
+//    if (args.length < 1) sys.error("need set Dftp Home")
+    val serverHome = "/data2/work/ncdc/faird/dftp-dacp/packaging/home"
 
     val confDir = Paths.get(serverHome, "conf").toFile
 

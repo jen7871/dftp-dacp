@@ -152,7 +152,7 @@ DACP server can be deployed in a similar way to DFTP.
 ```bash
 cd catalog-module
 # Package the server
-mvn clean package -P server-unix-dist
+mvn clean package -P dacp-server-unix-dist
 
 # Unpack the generated tarball
 tar -zxvf dacp-server-<version>.tar.gz

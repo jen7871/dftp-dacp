@@ -1,6 +1,7 @@
 package link.rdcn.server.module
 
 import scala.collection.mutable.ArrayBuffer
+import link.rdcn.Logging
 
 trait TaskRunner[Worker, Result] {
   def isReady(worker: Worker): Boolean
@@ -8,7 +9,7 @@ trait TaskRunner[Worker, Result] {
   def handleFailure(): Result
 }
 
-class Workers[Worker] {
+class Workers[Worker] extends Logging{
   private val _list = ArrayBuffer[Worker]()
 
   def add(worker: Worker): Unit = _list += worker
@@ -44,7 +45,12 @@ class Workers[Worker] {
         }
         catch {
           //not covered by run() match...cases
-          case e: MatchError => runner.handleFailure()
+          case e: MatchError =>
+            logger.error(e)
+            runner.handleFailure()
+          case e: Exception =>
+            logger.error(e)
+            throw e
         }
     }.getOrElse(runner.handleFailure())
   }
