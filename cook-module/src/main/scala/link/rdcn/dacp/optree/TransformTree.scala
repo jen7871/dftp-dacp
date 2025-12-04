@@ -142,25 +142,28 @@ case class TransformerNode(transformFunctionWrapperT: TransformFunctionWrapper, 
       case r: RepositoryOperator => r.transformFunctionWrapper
       case _ => transformFunctionWrapperT
     }
+
     transformFunctionWrapper match {
-      case bundle: FileRepositoryBundle if bundle.outputFilePath.head._2 == FileType.FIFO_BUFFER =>
-        if(flowCtx.isAsyncEnabled(this.transformFunctionWrapperT)) {
-          var thread: Thread = null
-          val future: Future[DataFrame] = Future {
-            try {
-              thread = Thread.currentThread()
-              bundle.runOperator()
-            } catch {
-              case t: Throwable =>
-                t.printStackTrace()
-                DataFrame.empty()
+      case bundle: FileRepositoryBundle =>
+        if (bundle.outputFilePath.head._2 != FileType.DIRECTORY ) {
+          if (flowCtx.isAsyncEnabled(this.transformFunctionWrapperT)) {
+            var thread: Thread = null
+            val future: Future[DataFrame] = Future {
+              try {
+                thread = Thread.currentThread()
+                bundle.runOperator(Seq(result))
+              } catch {
+                case t: Throwable =>
+                  t.printStackTrace()
+                  DataFrame.empty()
+              }
             }
-          }
-          flowCtx.registerAsyncResult(this, future, thread)
-        } else
-          bundle.runOperator()
+            flowCtx.registerAsyncResult(this, future, thread)
+          } else
+            bundle.runOperator(Seq(result))
+        }
       case _ =>
-    }
+      }
     result
   }
 }

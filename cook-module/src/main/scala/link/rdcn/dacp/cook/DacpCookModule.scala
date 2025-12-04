@@ -8,6 +8,7 @@ import link.rdcn.server.exception.{DataFrameAccessDeniedException, DataFrameNotF
 import link.rdcn.server.module._
 import link.rdcn.struct.DataFrame
 import link.rdcn.user.{Credentials, UserPrincipal}
+import link.rdcn.dacp.optree.fifo.FileType
 
 import java.nio.charset.StandardCharsets
 
@@ -117,11 +118,15 @@ class DacpCookModule() extends DftpModule with Logging {
                           }
                         }
 
+
                         //TODO Repository config
                         override def getRepositoryClient(): Option[OperatorRepository] = Some(new RepositoryClient("http://10.0.89.39", 8090))
 
                         //TODO UnionServer
                         override def loadRemoteDataFrame(baseUrl: String, path: String, credentials: Credentials): Option[DataFrame] = ???
+//                        {
+//                          DacpClientProxy.connect(baseUrl,credentials).executeTransformTree()
+//                        }
                       }
                       var result: DataFrame = DataFrame.empty()
                       try {

@@ -56,7 +56,7 @@ object TransformFunctionWrapper {
         var outputFileType = FileType.FIFO_BUFFER
         val outPutFilePath = jo.getJSONArray("outputFilePath").toList.asScala
           .map(_.asInstanceOf[util.HashMap[String, FileType]])
-          .map{jo =>
+          .map { jo =>
             outputFileType = FileType.fromString(jo.get("fileType").toString)
             (jo.get("filePath").toString, outputFileType)
           }
@@ -404,12 +404,12 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
     jo
   }
 
-  def runOperator(): DataFrame = {
+  def runOperator(outputDataFrames: Seq[Any]): DataFrame = {
     DockerExecute.nonInteractiveExec(command.toArray, dockerContainer.containerName) //"jyg-container"
     dockerContainer.stop()
     if (outputFilePath.head._2 != FileType.DIRECTORY) {
       //TODO: support outputting multiple DataFrames
-      FileDataFrame(FilePipe.fromFilePath(outputFilePath.head._1, outputFilePath.head._2), outputFilePath.head._2)
+      outputDataFrames.head.asInstanceOf[DataFrame]
     } else DataStreamSource.filePath(new File(outputFilePath.head._1)).dataFrame
   }
 
@@ -440,7 +440,7 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
 
   override def applyToDataFrames(inputs: Seq[DataFrame], ctx: FlowExecutionContext): DataFrame = {
     dockerContainer.start()
-    outputFilePath.foreach(path => {
+    val outputs = outputFilePath.map(path => {
       if (path._2 == FileType.DIRECTORY) {
         val dir = new File(path._1)
         dir.deleteOnExit()
@@ -484,9 +484,9 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
     })
     //TODO: support outputting multiple DataFrames
     if (outputFilePath.head._2 == FileType.DIRECTORY) {
-      runOperator()
+      runOperator(outputs)
       DataStreamSource.filePath(new File(outputFilePath.head._1)).dataFrame
-    } else FileDataFrame(FilePipe.fromFilePath(outputFilePath.head._1, outputFilePath.head._2), outputFilePath.head._2)
+    } else FileDataFrame(outputs.head.asInstanceOf[FilePipe], outputFilePath.head._2)
   }
 
   private def writeBlobToFile(blob: Blob, file: File): Unit = {

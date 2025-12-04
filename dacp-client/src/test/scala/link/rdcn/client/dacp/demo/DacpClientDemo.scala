@@ -175,7 +175,7 @@ object DacpClientDemo {
     tmpDir.toString
   }
 
-//  @BeforeAll
+  @BeforeAll
   def startServer(): Unit = {
     val modules = Array(
       new BaseDftpModule,
@@ -186,10 +186,10 @@ object DacpClientDemo {
       new UserPasswordAuthModule(userPasswordAuthService),
       new PermissionServiceModule(permissionService)
     )
-    server = DftpServer.start(DftpServerConfig("0.0.0.0", 3103).withProtocolScheme("dacp"), modules)
+    server = DftpServer.start(DftpServerConfig("0.0.0.0", 3102).withProtocolScheme("dacp"), modules)
   }
 
-//  @AfterAll
+  @AfterAll
   def closeServer(): Unit = {
     server.close()
   }
@@ -788,7 +788,7 @@ class DacpClientDemo {
         |  }
         |}""".stripMargin
 
-    val dc = DacpClient.connect("dacp://0.0.0.0:3103", UsernamePassword("admin", "admin"))
+    val dc = DacpClient.connect("dacp://0.0.0.0:3102", UsernamePassword("admin", "admin"))
     val dfs: ExecutionResult = dc.cook(sourceJson)
     dfs.single().foreach(println)
   }
@@ -796,7 +796,7 @@ class DacpClientDemo {
   @Test
   def MMAPtoFIFOMMAPTest(): Unit = {
 
-    val dc = DacpClient.connect("dacp://0.0.0.0:3103", UsernamePassword("admin", "admin"))
+    val dc = DacpClient.connect("dacp://0.0.0.0:3102", UsernamePassword("admin", "admin"))
 
     val nodeGullySlop = FlowNode.stocked("gully_slop", Some("0.5.0-20251127-2"))
     val fileRepositoryHydro = FlowNode.stocked("hydro_susceptibility", Some("0.5.0-20251127-1"))
