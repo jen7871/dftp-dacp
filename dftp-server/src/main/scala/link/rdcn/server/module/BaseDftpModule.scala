@@ -61,36 +61,29 @@ class BaseDftpModule extends DftpModule {
               override def doGetStream(request: DftpGetStreamRequest, response: DftpGetStreamResponse): Unit = {
                 request match {
                   case r: DftpGetPathStreamRequest =>
-                    var dataFrame = DataFrame.empty()
                     try {
-                    val dataFrame = r.getTransformOp().execute(new ExecutionContext {
-                      override def loadSourceDataFrame(dataFrameNameUrl: String): Option[DataFrame] = {
-                        try {
+                      val dataFrame = r.getTransformOp().execute(new ExecutionContext {
+                        override def loadSourceDataFrame(dataFrameNameUrl: String): Option[DataFrame] = {
                           Some(dataFrameHolder.work(new TaskRunner[DataFrameProviderService, DataFrame] {
 
-                            override def isReady(worker: DataFrameProviderService): Boolean = worker.accepts(dataFrameNameUrl)
+                            override def acceptedBy(worker: DataFrameProviderService): Boolean = worker.accepts(dataFrameNameUrl)
 
                             override def executeWith(worker: DataFrameProviderService): DataFrame = worker.getDataFrame(dataFrameNameUrl, r.getUserPrincipal())
 
                             override def handleFailure(): DataFrame = throw new DataFrameNotFoundException(dataFrameNameUrl)
                           }))
-                        } catch {
-                          case e: DataFrameAccessDeniedException => response.sendError(403, e.getMessage)
-                            throw e
-                          case e: DataFrameNotFoundException =>
-                            response.sendError(404, e.getMessage)
-                            throw e
-                          case e: Exception => response.sendError(500, e.getMessage)
-                            throw e
                         }
-                      }
-                    })
+                      })
+                      response.sendDataFrame(dataFrame)
                     } catch {
+                      case e: DataFrameAccessDeniedException => response.sendError(403, e.getMessage)
+                        throw e
+                      case e: DataFrameNotFoundException =>
+                        response.sendError(404, e.getMessage)
+                        throw e
                       case e: Exception => response.sendError(500, e.getMessage)
                         throw e
                     }
-
-                    response.sendDataFrame(dataFrame)
                 }
               }
             }

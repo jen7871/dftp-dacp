@@ -12,7 +12,6 @@ import org.json.{JSONArray, JSONObject}
 
 import java.io.{File, StringReader}
 import scala.collection.JavaConverters.{asJavaCollectionConverter, asScalaIteratorConverter}
-import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 /**
@@ -130,7 +129,6 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
   def cook(recipe: Flow): ExecutionResult = {
     val executePaths: Seq[FlowPath] = recipe.getExecutionPaths()
     val dfs: Seq[DataFrame] = executePaths.map(path => RemoteDataFrameProxy(transformFlowToOperation(path), getCookRows))
-
     new ExecutionResult() {
       override def single(): DataFrame = dfs.head
 
@@ -179,11 +177,9 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
         val jo = new JSONObject()
         jo.put("type", LangTypeV2.FILE_REPOSITORY_BUNDLE.name)
         jo.put("command", new JSONArray(command.asJavaCollection))
-        val sortedInputs = inputFilePath.sortBy(_._1)
-        val sortedOutputs = outputFilePath.sortBy(_._1)
-        jo.put("inputFilePath", new JSONArray(sortedInputs.map(file => new JSONObject().put("filePath", file._1)
+        jo.put("inputFilePath", new JSONArray(inputFilePath.map(file => new JSONObject().put("filePath", file._1)
         .put("fileType", file._2)).asJavaCollection))
-        jo.put("outputFilePath", new JSONArray(sortedOutputs.map(file => new JSONObject().put("filePath", file._1)
+        jo.put("outputFilePath", new JSONArray(outputFilePath.map(file => new JSONObject().put("filePath", file._1)
           .put("fileType", file._2)).asJavaCollection))
         jo.put("dockerContainer", dockerContainer.toJson())
         val transformerNode: TransformerNode = TransformerNode(
@@ -191,7 +187,8 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
           path.children.map(transformFlowToOperation(_)): _* )
         transformerNode
       case FifoFileFlowNode() => FiFoFileNode(path.children.map(transformFlowToOperation(_)): _*)
-      case RemoteDataFrameFlowNode(baseUrl, flow, certificate) => FiFoFileNode(path.children.map(transformFlowToOperation(_)): _*)
+      case RemoteDataFrameFlowNode(baseUrl, flow, certificate) =>
+        RemoteSourceProxyOp(baseUrl, transformFlowToOperation(flow.getExecutionPaths().head), certificate)
       case s: SourceNode => SourceOp(s.dataFrameName)
       case other => throw new IllegalArgumentException(s"This FlowNode ${other} is not supported please extend Transformer11 trait")
     }

@@ -26,6 +26,12 @@ case class RepositoryNode(
                            args: Map[String, String] = Map.empty
                          ) extends FlowNode
 
+case class RemoteDataFrameFlowNode(
+                                    baseUrl: String,
+                                    flow: Flow,
+                                    certificate: String
+                                  ) extends FlowNode
+
 case class FifoFileBundleFlowNode(
                                    command: Seq[String],
                                    inputFilePath: Seq[(String, FileType)],
@@ -34,12 +40,6 @@ case class FifoFileBundleFlowNode(
                                  ) extends FlowNode
 
 case class FifoFileFlowNode() extends FlowNode
-
-case class RemoteDataFrameFlowNode(
-                                    baseUrl: String,
-                                    flow: Flow,
-                                    certificate: String
-                                  )
 
 //只为DAG执行提供dataFrameName
 case class SourceNode(dataFrameName: String) extends FlowNode

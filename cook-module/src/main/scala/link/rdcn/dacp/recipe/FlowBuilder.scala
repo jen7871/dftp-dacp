@@ -1,3 +1,9 @@
+/**
+ * @Author Yomi
+ * @Description:
+ * @Data 2025/11/25 16:54
+ * @Modified By:
+ */
 package link.rdcn.dacp.recipe
 
 import link.rdcn.dacp.recipe.{Flow, FlowNode, RepositoryNode, SourceNode}
@@ -6,12 +12,6 @@ import org.json.JSONObject
 import scala.collection.JavaConverters._
 import scala.collection.mutable.{Map => MMap}
 
-/**
- * @Author Yomi
- * @Description:
- * @Data 2025/12/1 18:43
- * @Modified By:
- */
 object FlowBuilder {
   /**
    * 将 org.json.JSONObject 的 properties 转换为 Map[String, String]

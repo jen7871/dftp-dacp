@@ -277,12 +277,9 @@ case class CppBin(cppPath: String) extends TransformFunctionWrapper {
   override def applyToDataFrames(input: Seq[DataFrame], ctx: FlowExecutionContext): DataFrame = {
     val execFile = new java.io.File(cppPath)
 
-    // 检查并赋予执行权限
-    // 这一步对于从网络下载的二进制文件至关重要
     if (execFile.exists() && !execFile.canExecute) {
       val succeed = execFile.setExecutable(true)
       if (!succeed) {
-        // 如果无法赋予权限，通常意味着文件系统只读或当前用户权限极低
         throw new java.io.IOException(s"Failed to make file executable: $cppPath")
       }
     }
@@ -301,24 +298,19 @@ case class CppBin(cppPath: String) extends TransformFunctionWrapper {
           val row = iter.next()
           val jsonStr = row.toJsonString(inputSchema)
           try {
-            // 尝试写入
             writer.write(jsonStr)
             writer.newLine()
             writer.flush()
 
-            // 读取响应
             val response = reader.readLine()
             if (response == null) {
-              // 正常读取到 null，说明对方关闭了流，但这里通常意味着异常退出
               handleProcessDeath(process, "C++ process closed stream unexpectedly")
             }
             response
           } catch {
             case e: java.io.IOException =>
-              // 【关键】捕获 Broken pipe / Stream closed
-              // 此时进程很可能已经结束了，我们需要“尸检”
               handleProcessDeath(process, s"Write failed: ${e.getMessage}")
-              throw e // 只要上面 handleProcessDeath 抛异常，这行其实执行不到
+              throw e
           }
         }
       }
@@ -336,8 +328,6 @@ case class CppBin(cppPath: String) extends TransformFunctionWrapper {
   def handleProcessDeath(proc: Process, msg: String): Unit = {
     val exitCode = if (proc.isAlive) "Alive" else proc.exitValue().toString
 
-    // 尝试抢救 Stdout 里的残留日志
-    // 注意：Reader 可能已经被上面的逻辑读过一部分，这里尽量读取剩余的
     val stdoutResidue = try {
       val sb = new StringBuilder()
       while (proc.getInputStream.available() > 0) {
@@ -349,7 +339,6 @@ case class CppBin(cppPath: String) extends TransformFunctionWrapper {
       case _: Exception => "Cannot read stdout"
     }
 
-    // 组装错误信息
     val errorDetail =
       s"""
          |Error Context: $msg
@@ -404,12 +393,12 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
     jo
   }
 
-  def runOperator(outputDataFrames: Seq[Any]): DataFrame = {
+  def runOperator(): DataFrame = {
     DockerExecute.nonInteractiveExec(command.toArray, dockerContainer.containerName) //"jyg-container"
     dockerContainer.stop()
     if (outputFilePath.head._2 != FileType.DIRECTORY) {
       //TODO: support outputting multiple DataFrames
-      outputDataFrames.head.asInstanceOf[DataFrame]
+      FileDataFrame(FilePipe.fromFilePath(outputFilePath.head._1, outputFilePath.head._2), outputFilePath.head._2)
     } else DataStreamSource.filePath(new File(outputFilePath.head._1)).dataFrame
   }
 
@@ -440,6 +429,81 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
 
   override def applyToDataFrames(inputs: Seq[DataFrame], ctx: FlowExecutionContext): DataFrame = {
     dockerContainer.start()
+    outputFilePath.foreach(path => {
+      if (path._2 == FileType.DIRECTORY) {
+        val dir = new File(path._1)
+        dir.deleteOnExit()
+        dir.mkdirs()
+      } else FilePipe.fromFilePath(path._1, path._2)
+    })
+    require(inputs.length == inputFilePath.length,
+      s"Operator requires ${inputFilePath.length} input file(s), but received ${inputs.length}.")
+    inputs.zip(inputFilePath).foreach(dfAndInput => {
+      dfAndInput._1 match {
+        case f: FileDataFrame =>
+          if (dfAndInput._2._1 != f.filePipe.path) {
+            f.filePipe.copyToFile(FilePipe.fromFilePath(dfAndInput._2._1, dfAndInput._2._2))
+          }
+        case f: DataFrame => if (f.schema.columns.length == 1 && f.schema.columns.head.colType == BlobType) {
+          val blob = f.collect().head.getAs[Blob](0)
+          val file = new File(dfAndInput._2._1)
+          writeBlobToFile(blob, file)
+        } else if (f.schema == StructType.binaryStructType) {
+          val dir = Paths.get(dfAndInput._2._1).toFile
+          dir.deleteOnExit()
+          dir.mkdirs()
+          f.foreach(row => {
+            writeBlobToFile(row.getAs[Blob](6), Paths.get(dfAndInput._2._1, row.getAs[String](0)).toFile)
+          })
+        } else {
+          if (dfAndInput._2._2 == FileType.FIFO_BUFFER) {
+            val future = Future {
+              FilePipe.fromFilePath(dfAndInput._2._1, dfAndInput._2._2).write(f.mapIterator(iter => iter.map(row => row.toSeq.mkString(","))))
+            }
+            future onComplete {
+              case Success(value) => logger.debug(s"load ${dfAndInput._2._1} success")
+              case Failure(e) => logger.debug(s"load ${dfAndInput._2._1} faild")
+                throw e
+            }
+          } else {
+            FilePipe.fromFilePath(dfAndInput._2._1, dfAndInput._2._2).write(f.mapIterator(iter => iter.map(row => row.toSeq.mkString(","))))
+          }
+        }
+      }
+    })
+    //TODO: support outputting multiple DataFrames
+    if (outputFilePath.head._2 == FileType.DIRECTORY) {
+      runOperator()
+      DataStreamSource.filePath(new File(outputFilePath.head._1)).dataFrame
+    } else FileDataFrame(FilePipe.fromFilePath(outputFilePath.head._1, outputFilePath.head._2), outputFilePath.head._2)
+  }
+
+  private def writeBlobToFile(blob: Blob, file: File): Unit = {
+    blob.offerStream { in =>
+      val buffer = new Array[Byte](8 * 1024)
+      val out = new BufferedOutputStream(new FileOutputStream(file))
+      try {
+        Iterator
+          .continually(in.read(buffer))
+          .takeWhile(_ != -1)
+          .foreach(read => out.write(buffer, 0, read))
+      } finally {
+        in.close()
+        out.close()
+      }
+    }
+  }
+}
+
+case class FifoFileRepositoryBundle(command: Seq[String],
+                                    inputFilePath: Seq[(String, FileType)],
+                                    outputFilePath: Seq[(String, FileType)],
+                                    dockerContainer: DockerContainer) extends FileRepositoryBundle
+
+case class TempFileRepositoryBundle(command: Seq[String],
+                                    inputFilePath: Seq[(String, FileType)],
+                                    outputFilePath: Seq[(String, FileType)],
+                                    dockerContainer: DockerContainer) extends FileRepositoryBundle
     val outputs = outputFilePath.map(path => {
       if (path._2 == FileType.DIRECTORY) {
         val dir = new File(path._1)

@@ -2,6 +2,7 @@ package link.rdcn.server
 
 import link.rdcn.Logging
 import link.rdcn.server.ServerUtils.convertStructTypeToArrowSchema
+import link.rdcn.server.exception.UnknownGetStreamRequestException
 import link.rdcn.server.module.KernelModule
 import link.rdcn.struct._
 import link.rdcn.user.UserPrincipal
@@ -282,7 +283,15 @@ class DftpServer(config: DftpServerConfig) extends Logging {
       }
 
       val authenticatedUser = authenticatedUserMap.get(callContext.peerIdentity())
-      val request: DftpGetStreamRequest = kernelModule.parseGetStreamRequest(ticket.getBytes, authenticatedUser)
+      val request: DftpGetStreamRequest = {
+        try{
+          kernelModule.parseGetStreamRequest(ticket.getBytes, authenticatedUser)
+        }catch {
+          case e:UnknownGetStreamRequestException =>
+            response.sendError(404, e.getMessage)
+            throw e
+        }
+      }
 
       kernelModule.getStream(request, response)
     }
@@ -379,14 +388,11 @@ object DftpServer {
     reader.loadBeanDefinitions(new FileUrlResource(configXmlFile.getAbsolutePath))
     context.refresh()
 
-    val configBean = context.getBean("dftpServerConfigBean").asInstanceOf[DftpServerConfigBean]
+    val configBean = context.getBean(classOf[DftpServerConfigBean])
     val config: DftpServerConfig = configBean.toDftpServerConfig
 
-    val modulesBean = configBean.modules
-    val modulesArray: Array[DftpModule] =
-      if (modulesBean != null) modulesBean.getModules else Array.empty
     new DftpServer(config) {
-      modulesArray.foreach(modules.addModule(_))
+      configBean.modules.foreach(modules.addModule(_))
     }
   }
 }

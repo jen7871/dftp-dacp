@@ -1,5 +1,7 @@
 package link.rdcn.struct
 
+import link.rdcn.struct
+import link.rdcn.struct.ValueType.RefType
 import link.rdcn.util.{DataUtils, JdbcUtils}
 
 import java.io.{BufferedReader, File, FileReader}
@@ -7,6 +9,7 @@ import java.nio.file.attribute.BasicFileAttributes
 import java.sql.{Connection, DriverManager, ResultSet}
 import org.apache.commons.csv.{CSVFormat, CSVParser, CSVRecord}
 
+import java.nio.file.Paths
 import scala.collection.JavaConverters.{asScalaBufferConverter, asScalaIteratorConverter}
 import scala.collection.mutable.ArrayBuffer
 
@@ -98,6 +101,59 @@ object DataStreamSource {
 
       override def iterator: ClosableIterator[Row] =
         new ClosableIterator(stream, () => iterFiles.map(file => file._1.delete()), false)
+    }
+  }
+
+  def filePath(dfFile: File, dataFrameUrl: String): DataStreamSource = {
+    if (dfFile.isFile) {
+      dfFile.getName match {
+        case fileName if (fileName.endsWith(".csv")) =>
+          DataStreamSource.csv(dfFile)
+        case fileName if (fileName.endsWith(".xlsx") ||
+          fileName.endsWith(".xls")) =>
+          DataStreamSource.excel(dfFile.getAbsolutePath)
+        case _ =>
+          new DataStreamSource {
+            override def rowCount: Long = 1L
+
+            override def schema: StructType = StructType.blobStreamStructType
+
+            override def iterator: ClosableIterator[Row] =
+              ClosableIterator(Seq(Blob.fromFile(dfFile))
+                .map(value => Row.fromSeq(Seq(value))).toIterator)(() => {})
+          }
+      }
+    } else {
+      val stream = DataUtils.listFilesWithAttributes(dfFile).toIterator
+        .map(file => {
+          if (file._1.isDirectory) {
+            (file._1.getName, -1L, "directory",
+              file._2.creationTime().toMillis,
+              file._2.lastModifiedTime().toMillis,
+              file._2.lastAccessTime().toMillis,
+              null,
+              DFRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
+            )
+          } else {
+            (
+              file._1.getName, file._2.size(),
+              DataUtils.getFileType(file._1),
+              file._2.creationTime().toMillis,
+              file._2.lastModifiedTime().toMillis,
+              file._2.lastAccessTime().toMillis,
+              Blob.fromFile(file._1),
+              DFRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
+            )
+          }
+        }).map(Row.fromTuple(_))
+      val structType = StructType.binaryStructType.add("url", RefType)
+      new DataStreamSource {
+        override def rowCount: Long = dfFile.listFiles().length.toLong
+
+        override def schema: StructType = structType
+
+        override def iterator: ClosableIterator[Row] = ClosableIterator(stream)(()=>{})
+      }
     }
   }
 
