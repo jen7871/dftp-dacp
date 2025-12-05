@@ -35,6 +35,12 @@ case class FifoFileBundleFlowNode(
 
 case class FifoFileFlowNode() extends FlowNode
 
+case class RemoteDataFrameFlowNode(
+                                    baseUrl: String,
+                                    flow: Flow,
+                                    certificate: String
+                                  )
+
 //只为DAG执行提供dataFrameName
 case class SourceNode(dataFrameName: String) extends FlowNode
 

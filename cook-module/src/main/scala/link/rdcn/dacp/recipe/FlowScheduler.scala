@@ -2,180 +2,213 @@ package link.rdcn.dacp.recipe
 
 import org.json.{JSONArray, JSONObject}
 import scala.collection.JavaConverters._
-import scala.collection.mutable.{ArrayBuffer, Map => MMap, Set => MSet}
+import scala.collection.mutable.{ArrayBuffer, Map => MMap, Set => MSet, Queue => MQueue}
 
 object FlowScheduler {
 
-  // 定义简单的内部类方便处理，避免过度依赖 FlowBuilder 的具体实现细节
-  case class NodeInfo(name: String, nodeType: String, props: Map[String, Any])
+  // 内部数据结构
+  case class NodeInfo(name: String, nodeType: String, props: Map[String, Any], location: String)
+
   case class Edge(from: String, to: String)
 
-  /**
-   * 核心入口：优化并重组 Flow JSON
-   */
-  def optimize(sourceJsonString: String): String = {
+  def schedule(sourceJsonString: String): String = {
     // 1. 解析原始 JSON
     val root = new JSONObject(sourceJsonString)
     val flowJson = root.getJSONObject("flow")
     val stopsArray = flowJson.getJSONArray("stops")
     val pathsArray = flowJson.getJSONArray("paths")
 
-    // 2. 构建图结构
-    val nodes = MMap[String, NodeInfo]()
-    val edges = ArrayBuffer[Edge]()
-    // 上游映射: Child -> Parents
-    val parentsMap = MMap[String, ArrayBuffer[String]]()
+    // 2. 构建基础图信息
+    val rawNodes = MMap[String, JSONObject]() // id -> json
+    val inputs = MMap[String, ArrayBuffer[String]]() // node_id -> parent_ids
+    val outputs = MMap[String, ArrayBuffer[String]]() // node_id -> child_ids
+    val allNodeIds = MSet[String]()
 
     for (i <- 0 until stopsArray.length()) {
       val stop = stopsArray.getJSONObject(i)
-      val name = stop.getString("name")
-      val nType = stop.getString("type")
-      val propsJson = stop.optJSONObject("properties")
-      val props = if (propsJson != null) jsonObjectToMap(propsJson) else Map.empty[String, Any]
-      nodes(name) = NodeInfo(name, nType, props)
-      parentsMap(name) = ArrayBuffer.empty
+      // 修改点：使用 "id" 而不是 "name"
+      val id = stop.getString("id")
+      rawNodes(id) = stop
+      allNodeIds += id
+      if (!inputs.contains(id)) inputs(id) = ArrayBuffer()
+      if (!outputs.contains(id)) outputs(id) = ArrayBuffer()
     }
 
     for (i <- 0 until pathsArray.length()) {
       val path = pathsArray.getJSONObject(i)
       val from = path.getString("from")
       val to = path.getString("to")
-      edges += Edge(from, to)
-      if (parentsMap.contains(to)) {
-        parentsMap(to) += from
+      if (allNodeIds.contains(from) && allNodeIds.contains(to)) {
+        inputs(to) += from
+        outputs(from) += to
       }
     }
 
-    // 3. 确定每个节点的归属 URL (Location)
-    // 这里使用拓扑顺序遍历，确保处理某个节点时，其父节点位置已知
-    val nodeLocations = determineNodeLocations(nodes.toMap, parentsMap.toMap)
+    // 3. 确定每个节点的 Location
+    val nodeLocations = determineLocations(rawNodes.toMap, inputs.toMap)
 
-    // 4. 选举主节点 (拥有最多算子的节点)
+    // 4. 选举全局主节点 (Global Master)
     val locationCounts = nodeLocations.values.groupBy(identity).mapValues(_.size)
-    // 如果没有位置信息，默认空字符串
-    val masterUrl = if (locationCounts.nonEmpty) locationCounts.maxBy(_._2)._1 else ""
+    val globalMasterUrl = if (locationCounts.nonEmpty) locationCounts.maxBy(_._2)._1 else ""
 
-    // 5. 构建输出 JSON
-    val outputStops = new JSONArray()
-    val outputPaths = new JSONArray()
-    val processedLocations = MSet[String]()
+    // 5. 寻找全局输出节点 (Sinks) - 整个DAG中没有出边的节点
+    val globalSinks = allNodeIds.filter(n => outputs(n).isEmpty).toSeq
 
-    // 5.1 处理节点 (Stops)
-    // 按位置分组
-    val nodesByLocation = nodeLocations.groupBy(_._2)
-
-    nodesByLocation.foreach { case (locUrl, nodeNames) =>
-      if (locUrl == masterUrl) {
-        // 主节点：保留原样
-        nodeNames.keys.foreach { nodeName =>
-          val originalNodeJson = stopsArray.asScala
-            .map(_.asInstanceOf[JSONObject])
-            .find(_.getString("name") == nodeName).get
-          outputStops.put(originalNodeJson)
-        }
-      } else {
-        // 从节点：聚合为一个 RemoteDataFrameFlowNode
-        // 构建子工作流 (Sub-Flow)
-        val subFlowJson = buildSubFlow(nodeNames.keys.toSet, nodes.toMap, edges)
-
-        val remoteNode = new JSONObject()
-        remoteNode.put("name", locUrl)
-        remoteNode.put("type", "RemoteDataFrameFlowNode")
-
-        val props = new JSONObject()
-        props.put("baseUrl", locUrl)
-        props.put("flow", subFlowJson) // 嵌入子 JSON
-        props.put("certificate", "")
-
-        remoteNode.put("properties", props)
-        outputStops.put(remoteNode)
-      }
-    }
-
-    // 5.2 处理边 (Paths)
-    // 映射逻辑：节点名称 -> 如果在Master则保持名称，如果在Remote则变为RemoteUrl
-    def getNodeRepresentative(nodeName: String): String = {
-      val loc = nodeLocations.getOrElse(nodeName, "")
-      if (loc == masterUrl) nodeName else loc
-    }
-
-    val uniqueNewEdges = MSet[Edge]()
-
-    edges.foreach { edge =>
-      val newFrom = getNodeRepresentative(edge.from)
-      val newTo = getNodeRepresentative(edge.to)
-
-      // 只有当边的两端不再是同一个对象时（即跨节点或Master内部连接），才添加到主图
-      // 这里的逻辑：
-      // 1. Master -> Master (保留)
-      // 2. Master -> Remote (保留，变为 Node -> Url)
-      // 3. Remote -> Master (保留，变为 Url -> Node)
-      // 4. RemoteA -> RemoteB (保留，变为 UrlA -> UrlB)
-      // 5. RemoteA -> RemoteA (内部边，剔除，因为它在 SubFlow 内部)
-
-      if (newFrom != newTo) {
-        uniqueNewEdges += Edge(newFrom, newTo)
-      }
-    }
-
-    uniqueNewEdges.foreach { e =>
-      val pathObj = new JSONObject()
-      pathObj.put("from", e.from)
-      pathObj.put("to", e.to)
-      outputPaths.put(pathObj)
-    }
-
-    // 6. 组装最终结果
-    val finalFlow = new JSONObject()
-    finalFlow.put("stops", outputStops)
-    finalFlow.put("paths", outputPaths)
+    // 6. 递归构建 Flow
+    val finalFlowJson = buildLayer(globalSinks, globalMasterUrl, rawNodes.toMap, inputs.toMap, nodeLocations)
 
     val finalRoot = new JSONObject()
-    finalRoot.put("flow", finalFlow)
-
-    finalRoot.toString(2) // 格式化输出
+    finalRoot.put("flow", finalFlowJson)
+    finalRoot.toString(2)
   }
 
   /**
-   * 逻辑：推断每个节点的归属 URL
+   * 递归构建层级 (BFS 逻辑)
+   *
+   * @param targetNodes     本层级需要输出的目标节点ID集合
+   * @param contextLocation 当前层级所属的节点 URL (Master)
    */
-  private def determineNodeLocations(nodes: Map[String, NodeInfo],
-                                     parentsMap: Map[String, ArrayBuffer[String]]): Map[String, String] = {
-    val locations = MMap[String, String]()
+  private def buildLayer(targetNodes: Seq[String],
+                         contextLocation: String,
+                         rawNodes: Map[String, JSONObject],
+                         inputs: Map[String, ArrayBuffer[String]],
+                         nodeLocations: Map[String, String]): JSONObject = {
 
-    // 简单的拓扑排序处理顺序 (DFS based)
-    val visited = MSet[String]()
-    val processingOrder = ArrayBuffer[String]()
+    val stops = new JSONArray()
+    val paths = new JSONArray()
 
-    def dfs(node: String): Unit = {
-      if (!visited.contains(node)) {
-        visited += node
-        parentsMap.getOrElse(node, ArrayBuffer()).foreach(dfs)
-        processingOrder += node
+    val visitedInLayer = MSet[String]()
+    val queue = MQueue[String]()
+    queue ++= targetNodes
+
+    // 收集跨节点的依赖: RemoteLocation -> Set[NodeID]
+    val remoteDependencies = MMap[String, MSet[String]]()
+
+    // 收集本层有效的边 (from -> to)
+    val validEdges = ArrayBuffer[Edge]()
+
+    while (queue.nonEmpty) {
+      val currId = queue.dequeue()
+
+      if (!visitedInLayer.contains(currId)) {
+        visitedInLayer += currId
+
+        val currLoc = nodeLocations.getOrElse(currId, "")
+
+        if (currLoc == contextLocation) {
+          // Case 1: 本地节点
+          // 直接添加原节点 JSON (包含了 id, properties, version 等所有信息)
+          stops.put(rawNodes(currId))
+
+          val parents = inputs.getOrElse(currId, ArrayBuffer())
+          for (p <- parents) {
+            val pLoc = nodeLocations.getOrElse(p, "")
+
+            // 记录边：暂存原始边 p -> currId
+            validEdges += Edge(p, currId)
+
+            if (pLoc == contextLocation) {
+              // 父节点也是本地的 -> 继续遍历
+              queue.enqueue(p)
+            } else {
+              // 父节点是远程的 -> 记录依赖
+              if (!remoteDependencies.contains(pLoc)) {
+                remoteDependencies(pLoc) = MSet()
+              }
+              remoteDependencies(pLoc) += p
+            }
+          }
+        } else {
+          // Case 2: 目标节点本身就是远程的 (通常仅在入口处发生)
+          if (!remoteDependencies.contains(currLoc)) {
+            remoteDependencies(currLoc) = MSet()
+          }
+          remoteDependencies(currLoc) += currId
+        }
       }
     }
-    nodes.keys.foreach(dfs) // 此时 processingOrder 是拓扑序（先父后子）
 
-    processingOrder.foreach { name =>
-      val node = nodes(name)
-      if (node.nodeType == "SourceNode") {
-        // 规则：SourceNode 从 path 属性提取 URL
-        val path = node.props.getOrElse("path", "").toString
-        locations(name) = extractUrlPrefix(path)
+    // 处理远程依赖 (生成 RemoteDataFrameFlowNode 和 子 Flow)
+    remoteDependencies.foreach { case (remoteUrl, requiredNodeIds) =>
+      // 1. 递归构建子 Flow
+      val subFlow = buildLayer(requiredNodeIds.toSeq, remoteUrl, rawNodes, inputs, nodeLocations)
+
+      // 2. 创建 Remote 节点
+      val remoteNode = new JSONObject()
+      // 修改点：Remote 节点的标识符也使用 "id"
+      remoteNode.put("id", remoteUrl)
+      remoteNode.put("type", "RemoteDataFrameFlowNode")
+
+      val props = new JSONObject()
+      props.put("baseUrl", remoteUrl)
+      props.put("flow", subFlow)
+      props.put("certificate", "")
+
+      remoteNode.put("properties", props)
+      stops.put(remoteNode)
+    }
+
+    // 生成 Paths
+    validEdges.foreach { edge =>
+      val fromLoc = nodeLocations.getOrElse(edge.from, "")
+
+      if (nodeLocations.getOrElse(edge.to, "") == contextLocation) {
+
+        // 如果来源是远程，"from" 指向远程节点的 ID (即 URL)
+        val finalFrom = if (fromLoc == contextLocation) edge.from else fromLoc
+        val finalTo = edge.to
+
+        val pathObj = new JSONObject()
+        pathObj.put("from", finalFrom)
+        pathObj.put("to", finalTo)
+        paths.put(pathObj)
+      }
+    }
+
+    val flowJson = new JSONObject()
+    flowJson.put("stops", stops)
+    flowJson.put("paths", paths)
+    flowJson
+  }
+
+  /**
+   * 确定节点位置
+   */
+  private def determineLocations(rawNodes: Map[String, JSONObject],
+                                 inputs: Map[String, ArrayBuffer[String]]): Map[String, String] = {
+    val locations = MMap[String, String]()
+    val visited = MSet[String]()
+
+    val topoOrder = ArrayBuffer[String]()
+
+    def dfs(u: String): Unit = {
+      visited += u
+      inputs.getOrElse(u, Seq()).foreach { v =>
+        if (!visited.contains(v)) dfs(v)
+      }
+      topoOrder += u
+    }
+
+    rawNodes.keys.foreach { k => if (!visited.contains(k)) dfs(k) }
+
+    topoOrder.foreach { id =>
+      val nodeJson = rawNodes(id)
+      val nType = nodeJson.getString("type")
+
+      if (nType == "SourceNode") {
+        val path = nodeJson.optJSONObject("properties").optString("path", "")
+        locations(id) = extractUrlPrefix(path)
       } else {
-        // 规则：中间节点根据父节点推断
-        val parents = parentsMap.getOrElse(name, ArrayBuffer())
+        val parents = inputs.getOrElse(id, Seq())
         if (parents.isEmpty) {
-          locations(name) = "unknown" // 孤立节点
+          locations(id) = "unknown"
         } else {
-          val parentLocs = parents.flatMap(locations.get).toSet
-          if (parentLocs.size == 1) {
-            // 所有父节点在同一位置 -> 跟随
-            locations(name) = parentLocs.head
+          val parentLocs = parents.flatMap(locations.get)
+          if (parentLocs.distinct.size == 1) {
+            locations(id) = parentLocs.head
           } else {
-            // 父节点位置不同 -> 随机选择一个 (这里取第一个作为确定性随机)
-            // 根据题目描述："从上游节点随机选择一个节点"
-            locations(name) = parentLocs.head
+            // 冲突：随机选择 (取第一个)
+            locations(id) = parentLocs.headOption.getOrElse("unknown")
           }
         }
       }
@@ -183,62 +216,8 @@ object FlowScheduler {
     locations.toMap
   }
 
-  /**
-   * 辅助：从 dacp://ip:port/... 中提取 dacp://ip:port
-   */
   private def extractUrlPrefix(path: String): String = {
-    // 匹配 dacp:// + IP + (可选端口)
     val pattern = "(dacp://[0-9.]+(:[0-9]+)?)".r
     pattern.findFirstIn(path).getOrElse("unknown")
-  }
-
-  /**
-   * 辅助：构建子工作流 JSON
-   */
-  private def buildSubFlow(subNodeNames: Set[String],
-                           allNodes: Map[String, NodeInfo],
-                           allEdges: ArrayBuffer[Edge]): JSONObject = {
-    val stops = new JSONArray()
-    val paths = new JSONArray()
-
-    // 添加节点
-    subNodeNames.foreach { name =>
-      val node = allNodes(name)
-      val stopObj = new JSONObject()
-      stopObj.put("name", node.name)
-      stopObj.put("type", node.nodeType)
-      val props = new JSONObject()
-      node.props.foreach { case (k, v) => props.put(k, v) }
-      stopObj.put("properties", props)
-      stops.put(stopObj)
-    }
-
-    // 添加内部边 (只有当 from 和 to 都在该子图内才添加)
-    allEdges.foreach { edge =>
-      if (subNodeNames.contains(edge.from) && subNodeNames.contains(edge.to)) {
-        val pathObj = new JSONObject()
-        pathObj.put("from", edge.from)
-        pathObj.put("to", edge.to)
-        paths.put(pathObj)
-      }
-    }
-
-    val flow = new JSONObject()
-    flow.put("stops", stops)
-    flow.put("paths", paths)
-    // 按照题目要求，flow 下面可能需要再包一层 flow?
-    // 题目描述："RemoteDataFrameFlowNode中flow代表子工作流的flow，格式和原json一样"
-    // 原 JSON 结构是 root -> flow -> {stops, paths}
-    // 所以这里返回的应该是 { "stops": ..., "paths": ... } 这一层结构即可，
-    // 因为外部把它放在 "flow" 字段下。
-
-    // 如果需要严格完全一致的嵌套 (root -> flow)，请根据实际解析器调整。
-    // 这里根据 "output.json" 样例，Remote 节点的 properties.flow 是一个对象，
-    // 通常包含 stops 和 paths。
-    flow
-  }
-
-  private def jsonObjectToMap(json: JSONObject): Map[String, Any] = {
-    json.keys().asScala.map(k => k -> json.get(k)).toMap
   }
 }

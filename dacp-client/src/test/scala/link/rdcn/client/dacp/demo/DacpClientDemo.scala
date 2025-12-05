@@ -718,42 +718,42 @@ class DacpClientDemo {
         |    ],
         |    "stops": [
         |      {
-        |        "name": "sourceCsv",
+        |        "id": "sourceCsv",
         |        "type": "SourceNode",
         |        "properties": {
         |          "path": "dacp://0.0.0.0:3103/2019年中国榆林市沟道信息.csv"
         |        }
         |      },
         |      {
-        |        "name": "sourceTif",
+        |        "id": "sourceTif",
         |        "type": "SourceNode",
         |        "properties": {
         |          "path": "dacp://0.0.0.0:3103/2019年中国榆林市30m数字高程数据集.tif"
         |        }
         |      },
         |      {
-        |        "name": "sourceGEO",
+        |        "id": "sourceGEO",
         |        "type": "SourceNode",
         |        "properties": {
         |          "path": "dacp://0.0.0.0:3103/geo_entropy.csv"
         |        }
         |      },
         |      {
-        |        "name": "sourceLabelsDir",
+        |        "id": "sourceLabelsDir",
         |        "type": "SourceNode",
         |        "properties": {
         |          "path": "dacp://0.0.0.0:3103/op2/labels"
         |        }
         |      },
         |      {
-        |        "name": "sourceTfwDir",
+        |        "id": "sourceTfwDir",
         |        "type": "SourceNode",
         |        "properties": {
         |          "path": "dacp://0.0.0.0:3103/op2/tfw"
         |        }
         |      },
         |      {
-        |        "name": "gully",
+        |        "id": "gully",
         |        "type": "RepositoryNode",
         |        "properties": {
         |          "name": "gully_slop",
@@ -761,7 +761,7 @@ class DacpClientDemo {
         |        }
         |      },
         |      {
-        |        "name": "fileRepositoryHydro",
+        |        "id": "fileRepositoryHydro",
         |        "type": "RepositoryNode",
         |        "properties": {
         |          "name": "hydro_susceptibility",
@@ -769,7 +769,7 @@ class DacpClientDemo {
         |        }
         |      },
         |      {
-        |        "name": "fileRepositoryGeoTransMain",
+        |        "id": "fileRepositoryGeoTransMain",
         |        "type": "RepositoryNode",
         |        "properties": {
         |          "name": "geotrans",
@@ -777,7 +777,7 @@ class DacpClientDemo {
         |        }
         |      },
         |      {
-        |        "name": "fileRepositorySelect",
+        |        "id": "fileRepositorySelect",
         |        "type": "RepositoryNode",
         |        "properties": {
         |          "name": "overlap_dam_select",
@@ -788,7 +788,7 @@ class DacpClientDemo {
         |  }
         |}""".stripMargin
 
-    val dc = DacpClient.connect("dacp://0.0.0.0:3102", UsernamePassword("admin", "admin"))
+    val dc = DacpClient.connect("dacp://0.0.0.0:3103", UsernamePassword("admin", "admin"))
     val dfs: ExecutionResult = dc.cook(sourceJson)
     dfs.single().foreach(println)
   }
