@@ -43,12 +43,12 @@ class DacpCatalogModule extends DftpModule with Logging {
               val actionName = request.getActionName()
               val parameter = request.getParameterAsMap()
               catalogServiceHolder.work[Unit](new TaskRunner[CatalogService, Unit] {
-                override def acceptedBy(worker: CatalogService): Boolean =
-                  worker.accepts(new CatalogServiceRequest {
-                    override def getDataSetId: String = parameter.get("dataSetName").map(_.toString).orNull
-
-                    override def getDataFrameUrl: String = parameter.get("dataFrameName").map(_.toString).orNull
-                  })
+                override def acceptedBy(worker: CatalogService): Boolean = true
+//                  worker.accepts(new CatalogServiceRequest {
+//                    override def getDataSetId: String = parameter.get("dataSetName").map(_.toString).orNull
+//
+//                    override def getDataFrameUrl: String = parameter.get("dataFrameName").map(_.toString).orNull
+//                  })
 
                 override def executeWith(worker: CatalogService): Unit = {
                   actionName match {

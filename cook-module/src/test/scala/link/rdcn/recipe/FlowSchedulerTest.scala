@@ -52,7 +52,7 @@ class FlowSchedulerTest {
         |        "id": "sourceCsv",
         |        "type": "SourceNode",
         |        "properties": {
-        |          "path": "dacp://10.0.82.143:3103/2019年中国榆林市沟道信息.csv"
+        |          "path": "dacp://10.0.82.148:3103/2019年中国榆林市沟道信息.csv"
         |        }
         |      },
         |      {

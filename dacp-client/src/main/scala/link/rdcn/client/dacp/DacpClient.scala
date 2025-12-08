@@ -12,7 +12,8 @@ import org.json.{JSONArray, JSONObject}
 
 import java.io.{File, StringReader}
 import scala.collection.JavaConverters.{asJavaCollectionConverter, asScalaIteratorConverter}
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable
+import scala.collection.mutable.{ArrayBuffer, Map => MMap}
 
 /**
  * @Author renhao
@@ -128,6 +129,7 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
 
   def cook(recipe: Flow): ExecutionResult = {
     val executePaths: Seq[FlowPath] = recipe.getExecutionPaths()
+    val ops = transformFlowToOperation(executePaths.head)
     val dfs: Seq[DataFrame] = executePaths.map(path => RemoteDataFrameProxy(transformFlowToOperation(path), getCookRows))
     new ExecutionResult() {
       override def single(): DataFrame = dfs.head
@@ -141,9 +143,20 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
   }
 
   def cook(recipeString: String): ExecutionResult = {
-    FlowBuilder.convert(recipeString) match {
-      case Right(flow) => cook(flow)
-      case Left(message) => throw new IllegalArgumentException(s"Invalid DACP URL: $message")
+//    FlowBuilder.convert(recipeString) match {
+//      case Right(flow) => cook(flow)
+//      case Left(message) => throw new IllegalArgumentException(s"Invalid DACP URL: $message")
+//    }
+    val transformOp = transformFlowJsonToOperation(recipeString)
+    val dfs: Seq[DataFrame] = Seq(RemoteDataFrameProxy(transformOp, getCookRows))
+    new ExecutionResult() {
+      override def single(): DataFrame = dfs.head
+
+      override def get(name: String): DataFrame = dfs(name.toInt - 1)
+
+      override def map(): Map[String, DataFrame] = dfs.zipWithIndex.map {
+        case (dataFrame, id) => (id.toString, dataFrame)
+      }.toMap
     }
   }
 
@@ -192,6 +205,72 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
       case s: SourceNode => SourceOp(s.dataFrameName)
       case other => throw new IllegalArgumentException(s"This FlowNode ${other} is not supported please extend Transformer11 trait")
     }
+  }
+
+  private def transformFlowJsonToOperation(flowString: String): TransformOp = {
+    val rootJson = new JSONObject(flowString)
+    val flowJson = if (rootJson.has("flow")) rootJson.getJSONObject("flow") else rootJson
+
+    val stopsArray = flowJson.getJSONArray("stops")
+    val pathsArray = flowJson.getJSONArray("paths")
+
+    val nodesMap = MMap[String, JSONObject]()
+    for (i <- 0 until stopsArray.length()) {
+      val stop = stopsArray.getJSONObject(i)
+      nodesMap(stop.getString("id")) = stop
+    }
+
+    val incomingEdges = MMap[String, mutable.Buffer[String]]()
+    val allSourceIds = mutable.Set[String]() // 所有作为起点的ID
+
+    for (i <- 0 until pathsArray.length()) {
+      val path = pathsArray.getJSONObject(i)
+      val from = path.getString("from")
+      val to = path.getString("to")
+
+      incomingEdges.getOrElseUpdate(to, mutable.Buffer()) += from
+      allSourceIds.add(from)
+    }
+
+    val allIds = nodesMap.keys.toSet
+    val sinkIds = allIds -- allSourceIds
+
+    if (sinkIds.isEmpty) throw new IllegalArgumentException("Invalid Flow: Cyclic graph or empty (No sink node found).")
+
+    val rootId = sinkIds.head
+
+    def recursiveBuild(currentId: String): TransformOp = {
+      val nodeJson = nodesMap(currentId)
+      val nodeType = nodeJson.getString("type")
+      val properties = nodeJson.optJSONObject("properties", new JSONObject())
+
+      val inputIds = incomingEdges.getOrElse(currentId, Seq.empty)
+      val inputOps = inputIds.map(recursiveBuild).toSeq
+
+      nodeType match {
+        // Source
+        case "SourceNode" | "SourceOp" =>
+          val path = if (properties.has("dataFrameName")) properties.getString("dataFrameName")
+          else properties.optString("path", "")
+          SourceOp(path)
+        case "RepositoryNode" =>
+          val jo = new JSONObject()
+          jo.put("type", LangTypeV2.REPOSITORY_OPERATOR.name)
+          jo.put("functionName", properties.get("name").asInstanceOf[String])
+          jo.put("functionVersion", properties.get("version").asInstanceOf[String])
+          TransformerNode(
+            TransformFunctionWrapper.fromJsonObject(jo).asInstanceOf[RepositoryOperator],
+            inputOps: _*)
+
+        case "RemoteDataFrameFlowNode" =>
+          RemoteSourceProxyOp(properties.get("baseUrl").asInstanceOf[String],
+            transformFlowJsonToOperation(new JSONObject().put("flow",new JSONObject(properties.get("flow").asInstanceOf[String])).toString),
+            properties.get("certificate").asInstanceOf[String])
+
+        case other => throw new IllegalArgumentException(s"Unknown FlowNode type: $other at id: $currentId")
+      }
+    }
+    recursiveBuild(rootId)
   }
 
   def getCookRows(transformOpStr: String): (StructType, ClosableIterator[Row]) = {

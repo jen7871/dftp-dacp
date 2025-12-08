@@ -1,7 +1,7 @@
 package link.rdcn.dacp.cook
 
 import link.rdcn.Logging
-import link.rdcn.client.{DftpClient, UrlValidator}
+import link.rdcn.client.{DftpClient,UrlValidator}
 import link.rdcn.dacp.optree._
 import link.rdcn.message.DftpTicket
 import link.rdcn.operation.TransformOp

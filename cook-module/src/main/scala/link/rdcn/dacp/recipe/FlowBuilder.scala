@@ -6,11 +6,11 @@
  */
 package link.rdcn.dacp.recipe
 
-import link.rdcn.dacp.recipe.{Flow, FlowNode, RepositoryNode, SourceNode}
 import org.json.JSONObject
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.{Map => MMap}
+import scala.collection.immutable.HashMap
 
 object FlowBuilder {
   /**
@@ -44,6 +44,13 @@ object FlowBuilder {
           stringProps.get("name").get,
           stringProps.get("version"),
           Map.empty // 包含 version 等其他属性
+        )
+
+      case "RemoteDataFrameFlowNode" =>
+        RemoteDataFrameFlowNode(
+          stringProps.get("baseUrl").get,
+          FlowBuilder.buildFlow(new JSONObject().put("flow",new JSONObject(stringProps.get("flow").get)).toString),
+          stringProps.get("certificate").get// 包含 version 等其他属性
         )
 
       case other => throw new IllegalArgumentException(s"Unknown FlowNode type: $other")
@@ -81,8 +88,8 @@ object FlowBuilder {
     }
 
     Flow(
-      nodes = nodesMap.toMap,
-      edges = edgesMap.toMap
+      nodes = HashMap.empty[String, FlowNode] ++ nodesMap,
+      edges = HashMap.empty[String, Seq[String]] ++ edgesMap
     )
   }
 

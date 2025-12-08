@@ -449,8 +449,8 @@ class DacpClientDemo {
 
   @Test
   def vrepositoryDemoTest(): Unit = {
-    val dc = DacpClient.connect("dacp://0.0.0.0:3103", UsernamePassword("admin", "admin"))
-
+    val dc = DacpClient.connect("dacp://0.0.0.0:3104", UsernamePassword("admin", "admin"))
+    dc.get("dacp://0.0.0.0:3104/2019年中国榆林市沟道信息.csv").foreach(println)
     val nodeGullySlop = FlowNode.stocked("gully_slop", Some("0.5.0-20251115-1"))
     val fileRepositoryHydro = FlowNode.stocked("hydro_susceptibility", Some("0.5.0-20251115-1"))
     val fileRepositoryGeoTransMain = FlowNode.stocked("geotrans", Some("0.5.0-20251115-2"))
@@ -482,8 +482,10 @@ class DacpClientDemo {
       )
     )
 
-    val result = dc.cook(recipe)
-    result.single().foreach(println)
+//    val result = dc.cook(recipe)
+    import link.rdcn.dacp.optree.TransformTree
+    val result = dc.executeTransformTree(TransformTree.fromJsonString("{\n  \"input\" : [ {\n    \"input\" : [ {\n      \"input\" : [ {\n        \"type\" : \"SourceOp\",\n        \"dataFrameName\" : \"dacp://0.0.0.0:3103/geo_entropy.csv\"\n      }, {\n        \"input\" : [ {\n          \"type\" : \"SourceOp\",\n          \"dataFrameName\" : \"dacp://0.0.0.0:3103/2019年中国榆林市沟道信息.csv\"\n        }, {\n          \"type\" : \"SourceOp\",\n          \"dataFrameName\" : \"dacp://0.0.0.0:3103/2019年中国榆林市30m数字高程数据集.tif\"\n        } ],\n        \"function\" : {\n          \"functionVersion\" : \"0.5.0-20251115-1\",\n          \"functionName\" : \"gully_slop\",\n          \"type\" : \"REPOSITORY_OPERATOR\"\n        },\n        \"type\" : \"TransformerNode\"\n      } ],\n      \"function\" : {\n        \"functionVersion\" : \"0.5.0-20251115-1\",\n        \"functionName\" : \"hydro_susceptibility\",\n        \"type\" : \"REPOSITORY_OPERATOR\"\n      },\n      \"type\" : \"TransformerNode\"\n    }, {\n      \"input\" : [ {\n        \"type\" : \"SourceOp\",\n        \"dataFrameName\" : \"dacp://0.0.0.0:3103/op2/tfw\"\n      }, {\n        \"type\" : \"SourceOp\",\n        \"dataFrameName\" : \"dacp://0.0.0.0:3103/op2/labels\"\n      } ],\n      \"function\" : {\n        \"functionVersion\" : \"0.5.0-20251115-2\",\n        \"functionName\" : \"geotrans\",\n        \"type\" : \"REPOSITORY_OPERATOR\"\n      },\n      \"type\" : \"TransformerNode\"\n    } ],\n    \"function\" : {\n      \"functionVersion\" : \"0.5.0-20251115-1\",\n      \"functionName\" : \"overlap_dam_select\",\n      \"type\" : \"REPOSITORY_OPERATOR\"\n    },\n    \"type\" : \"TransformerNode\"\n  } ],\n  \"type\" : \"FifoFileNode\"\n}"))
+    result.foreach(println)
   }
 
   @Test
@@ -787,8 +789,179 @@ class DacpClientDemo {
         |  }
         |}""".stripMargin
 
-    val dc = DacpClient.connect("dacp://0.0.0.0:3103", UsernamePassword("admin", "admin"))
+    val dc = DacpClient.connect("dacp://0.0.0.0:3102", UsernamePassword("admin", "admin"))
     val dfs: ExecutionResult = dc.cook(sourceJson)
+    dfs.single().foreach(println)
+  }
+
+  @Test
+  def testSubFlowJSONString(): Unit = {
+    val sourceJson =
+      """
+        |{
+        |  "flow": {
+        |    "paths": [
+        |      {
+        |        "from": "sourceTif",
+        |        "to": "gully",
+        |      },
+        |      {
+        |        "from": "sourceCsv",
+        |        "to": "gully"
+        |
+        |      }
+
+        |    ],
+        |    "stops": [
+        |      {
+        |        "id": "sourceCsv",
+        |        "type": "SourceNode",
+        |        "properties": {
+        |          "path": "dacp://0.0.0.0:3103/2019年中国榆林市沟道信息.csv"
+        |        }
+        |      },
+        |      {
+        |        "id": "sourceTif",
+        |        "type": "SourceNode",
+        |        "properties": {
+        |          "path": "dacp://0.0.0.0:3103/2019年中国榆林市30m数字高程数据集.tif"
+        |        }
+        |      },
+        |      {
+        |        "id": "gully",
+        |        "type": "RepositoryNode",
+        |        "properties": {
+        |          "name": "gully_slop",
+        |          "version" : "0.5.0-20251115-1"
+        |        }
+        |      }
+        |    ]
+        |  }
+        |}""".stripMargin
+    val dc = DacpClient.connect("dacp://0.0.0.0:3102", UsernamePassword("admin", "admin"))
+    val dfs: ExecutionResult = dc.cook(sourceJson)
+    dfs.single().foreach(println)
+  }
+
+  @Test
+  def testScheduleFlowDistribution(): Unit = {
+    val inputJson =
+      """
+        |{
+        |  "flow": {
+        |    "paths": [
+        |      {
+        |        "from": "sourceCsv",
+        |        "to": "gully"
+        |      },
+        |      {
+        |        "from": "sourceTif",
+        |        "to": "gully"
+        |      },
+        |            {
+        |        "from": "sourceGEO",
+        |        "to": "node-fileRepositoryHydro"
+        |      },
+        |      {
+        |        "from": "gully",
+        |        "to": "node-fileRepositoryHydro"
+        |      },
+        |      {
+        |        "from": "node-fileRepositoryHydro",
+        |        "to": "fileRepositorySelect"
+        |      },
+        |      {
+        |        "from": "sourceTfwDir",
+        |        "to": "fileRepositoryGeoTransMain"
+        |      },
+        |      {
+        |        "from": "sourceLabelsDir",
+        |        "to": "fileRepositoryGeoTransMain"
+        |      },
+        |      {
+        |        "from": "fileRepositoryGeoTransMain",
+        |        "to": "fileRepositorySelect"
+        |      }
+        |    ],
+        |    "stops": [
+        |      {
+        |        "id": "sourceCsv",
+        |        "type": "SourceNode",
+        |        "properties": {
+        |          "path": "dacp://10.0.82.148:3103/2019年中国榆林市沟道信息.csv"
+        |        }
+        |      },
+        |      {
+        |        "id": "sourceTif",
+        |        "type": "SourceNode",
+        |        "properties": {
+        |          "path": "dacp://10.0.82.147:3103/2019年中国榆林市30m数字高程数据集.tif"
+        |        }
+        |      },
+        |      {
+        |        "id": "sourceGEO",
+        |        "type": "SourceNode",
+        |        "properties": {
+        |          "path": "dacp://10.0.82.147:3103/geo_entropy.csv"
+        |        }
+        |      },
+        |      {
+        |        "id": "sourceLabelsDir",
+        |        "type": "SourceNode",
+        |        "properties": {
+        |          "path": "dacp://10.0.82.210:3103/op2/labels"
+        |        }
+        |      },
+        |      {
+        |        "id": "sourceTfwDir",
+        |        "type": "SourceNode",
+        |        "properties": {
+        |          "path": "dacp://10.0.82.210:3103/op2/tfw"
+        |        }
+        |      },
+        |      {
+        |        "id": "gully",
+        |        "type": "RepositoryNode",
+        |        "properties": {
+        |          "name": "gully_slop",
+        |          "version" : "0.5.0-20251115-1"
+        |        }
+        |      },
+        |      {
+        |        "id": "node-fileRepositoryHydro",
+        |        "type": "RepositoryNode",
+        |        "properties": {
+        |          "name": "hydro_susceptibility",
+        |          "version" : "0.5.0-20251115-1"
+        |        }
+        |      },
+        |      {
+        |        "id": "fileRepositoryGeoTransMain",
+        |        "type": "RepositoryNode",
+        |        "properties": {
+        |          "name": "geotrans",
+        |          "version" : "0.5.0-20251115-2"
+        |        }
+        |      },
+        |      {
+        |        "id": "fileRepositorySelect",
+        |        "type": "RepositoryNode",
+        |        "properties": {
+        |          "name": "overlap_dam_select",
+        |          "version" : "0.5.0-20251115-1"
+        |        }
+        |      }
+        |    ]
+        |  }
+        |}
+        |""".stripMargin
+
+    // 执行优化逻辑
+    val resultJsonStr = FlowScheduler.schedule(inputJson)
+    val resultJson = new JSONObject(resultJsonStr)
+    println(resultJson)
+    val dc = DacpClient.connect("dacp://0.0.0.0:3103", UsernamePassword("admin", "admin"))
+    val dfs: ExecutionResult = dc.cook(resultJsonStr)
     dfs.single().foreach(println)
   }
 

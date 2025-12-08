@@ -27,13 +27,11 @@
             <groupId>link.rdcn</groupId>
             <artifactId>catalog-module</artifactId>
             <version>${project.parent.version}</version>
-            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>link.rdcn</groupId>
             <artifactId>cook-module</artifactId>
             <version>${project.parent.version}</version>
-            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>link.rdcn</groupId>
