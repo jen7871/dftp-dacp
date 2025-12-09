@@ -133,7 +133,6 @@ case class TransformerNode(transformFunctionWrapperT: TransformFunctionWrapper, 
     }
     transformFunctionWrapper match {
       case bundle: FileRepositoryBundle if bundle.outputFilePath.head._2 == FileType.FIFO_BUFFER =>
-        if(flowCtx.isAsyncEnabled(this.transformFunctionWrapperT)) {
           var thread: Thread = null
           val future: Future[DataFrame] = Future {
             try {
@@ -146,8 +145,7 @@ case class TransformerNode(transformFunctionWrapperT: TransformFunctionWrapper, 
             }
           }
           flowCtx.registerAsyncResult(this, future, thread)
-        } else
-          bundle.runOperator()
+      case bundle: FileRepositoryBundle if bundle.outputFilePath.head._2 == FileType.MMAP_FILE => bundle.runOperator()
       case _ =>
     }
     result

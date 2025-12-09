@@ -795,6 +795,131 @@ class DacpClientDemo {
   }
 
   @Test
+  def cookJSONStringwithInportTest(): Unit = {
+    val sourceJson: String =
+      """
+        |{
+        |  "flow": {
+        |    "paths": [
+        |      {
+        |        "from": "sourceCsv",
+        |        "to": "gully",
+        |        "inport": "0"
+        |      },
+        |      {
+        |        "from": "sourceTif",
+        |        "to": "gully",
+        |        "inport": "1"
+        |      },
+        |            {
+        |        "from": "sourceGEO",
+        |        "to": "node_fileRepositoryHydro",
+        |        "inport": "0"
+        |      },
+        |      {
+        |        "from": "gully",
+        |        "to": "node_fileRepositoryHydro",
+        |        "inport": "1"
+        |      },
+        |      {
+        |        "from": "node_fileRepositoryHydro",
+        |        "to": "fileRepositorySelect",
+        |        "inport": "0"
+        |      },
+        |      {
+        |        "from": "sourceTfwDir",
+        |        "to": "fileRepositoryGeoTransMain",
+        |        "inport": "0"
+        |      },
+        |      {
+        |        "from": "sourceLabelsDir",
+        |        "to": "fileRepositoryGeoTransMain",
+        |        "inport": "1"
+        |      },
+        |      {
+        |        "from": "fileRepositoryGeoTransMain",
+        |        "to": "fileRepositorySelect",
+        |        "inport": "1"
+        |      }
+        |    ],
+        |    "stops": [
+        |      {
+        |        "id": "sourceCsv",
+        |        "type": "SourceNode",
+        |        "properties": {
+        |          "path": "dacp://0.0.0.0:3103/2019年中国榆林市沟道信息.csv"
+        |        }
+        |      },
+        |      {
+        |        "id": "sourceTif",
+        |        "type": "SourceNode",
+        |        "properties": {
+        |          "path": "dacp://0.0.0.0:3103/2019年中国榆林市30m数字高程数据集.tif"
+        |        }
+        |      },
+        |      {
+        |        "id": "sourceGEO",
+        |        "type": "SourceNode",
+        |        "properties": {
+        |          "path": "dacp://0.0.0.0:3103/geo_entropy.csv"
+        |        }
+        |      },
+        |      {
+        |        "id": "sourceLabelsDir",
+        |        "type": "SourceNode",
+        |        "properties": {
+        |          "path": "dacp://0.0.0.0:3103/op2/labels"
+        |        }
+        |      },
+        |      {
+        |        "id": "sourceTfwDir",
+        |        "type": "SourceNode",
+        |        "properties": {
+        |          "path": "dacp://0.0.0.0:3103/op2/tfw"
+        |        }
+        |      },
+        |      {
+        |        "id": "gully",
+        |        "type": "RepositoryNode",
+        |        "properties": {
+        |          "name": "gully_slop",
+        |          "version" : "0.5.0-20251115-1"
+        |        }
+        |      },
+        |      {
+        |        "id": "node_fileRepositoryHydro",
+        |        "type": "RepositoryNode",
+        |        "properties": {
+        |          "name": "hydro_susceptibility",
+        |          "version" : "0.5.0-20251115-1"
+        |        }
+        |      },
+        |      {
+        |        "id": "fileRepositoryGeoTransMain",
+        |        "type": "RepositoryNode",
+        |        "properties": {
+        |          "name": "geotrans",
+        |          "version" : "0.5.0-20251115-2"
+        |        }
+        |      },
+        |      {
+        |        "id": "fileRepositorySelect",
+        |        "type": "RepositoryNode",
+        |        "properties": {
+        |          "name": "overlap_dam_select",
+        |          "version" : "0.5.0-20251115-1"
+        |        }
+        |      }
+        |    ]
+        |  }
+        |}""".stripMargin
+
+    val dc = DacpClient.connect("dacp://0.0.0.0:3102", UsernamePassword("admin", "admin"))
+    val dfs: ExecutionResult = dc.cook(sourceJson)
+    dfs.single().foreach(println)
+  }
+
+  @Test
   def testSubFlowJSONString(): Unit = {
     val sourceJson =
       """
@@ -804,11 +929,12 @@ class DacpClientDemo {
         |      {
         |        "from": "sourceTif",
         |        "to": "gully",
+        |        "inport": "1"
         |      },
         |      {
         |        "from": "sourceCsv",
-        |        "to": "gully"
-        |
+        |        "to": "gully",
+        |        "inport": "0"
         |      }
 
         |    ],
@@ -1003,5 +1129,169 @@ class DacpClientDemo {
 
     val result = dc.cook(recipe)
     result.single().foreach(println)
+  }
+
+  @Test
+  def PureMMAPTest(): Unit = {
+
+    val dc = DacpClient.connect("dacp://0.0.0.0:3102", UsernamePassword("admin", "admin"))
+
+    val nodeGullySlop = FlowNode.stocked("gully_slop", Some("0.5.0-20251127-2"))
+    val fileRepositoryHydro = FlowNode.stocked("hydro_susceptibility", Some("0.5.0-20251127-1"))
+    val fileRepositoryGeoTransMain = FlowNode.stocked("geotrans", Some("0.5.0-20251115-2"))
+    val fileRepositorySelect = FlowNode.stocked("overlap_dam_select", Some("0.5.0-20251127-1"))
+
+    val recipe = Flow(
+      Map(
+        "sourceCsv" -> SourceNode("dacp://0.0.0.0:3103/2019年中国榆林市沟道信息.csv"),
+        "sourceTif" -> SourceNode("dacp://0.0.0.0:3103/2019年中国榆林市30m数字高程数据集.tif"),
+        "sourceGEO" -> SourceNode("dacp://0.0.0.0:3103/geo_entropy.csv"),
+        "gully" -> nodeGullySlop,
+        "fileRepositoryHydro" -> fileRepositoryHydro,
+        "sourceLabelsDir" -> SourceNode("dacp://0.0.0.0:3103/op2/labels"),
+        "sourceTfwDir" -> SourceNode("dacp://0.0.0.0:3103/op2/tfw"),
+        "fileRepositoryGeoTransMain" -> fileRepositoryGeoTransMain,
+        "fileRepositorySelect" -> fileRepositorySelect,
+        "fifoNode" -> FifoFileFlowNode()
+      ),
+      Map(
+        "sourceCsv" -> Seq("gully"),
+        "sourceTif" -> Seq("gully"),
+        "sourceGEO" -> Seq("fileRepositoryHydro"),
+        "gully" -> Seq("fileRepositoryHydro"),
+        "fileRepositoryHydro" -> Seq("fileRepositorySelect"),
+        "sourceTfwDir" -> Seq("fileRepositoryGeoTransMain"),
+        "sourceLabelsDir" -> Seq("fileRepositoryGeoTransMain"),
+        "fileRepositoryGeoTransMain" -> Seq("fileRepositorySelect"),
+        "fileRepositorySelect" -> Seq("fifoNode")
+      )
+    )
+
+    val result = dc.cook(recipe)
+    result.single().foreach(println)
+  }
+
+  @Test
+  def PureMMAPJsonTest(): Unit = {
+    val sourceJson: String =
+      """
+        |{
+        |  "flow": {
+        |    "paths": [
+        |      {
+        |        "from": "sourceCsv",
+        |        "to": "gully",
+        |        "inport": "0"
+        |      },
+        |      {
+        |        "from": "sourceTif",
+        |        "to": "gully",
+        |        "inport": "1"
+        |      },
+        |            {
+        |        "from": "sourceGEO",
+        |        "to": "node_fileRepositoryHydro",
+        |        "inport": "0"
+        |      },
+        |      {
+        |        "from": "gully",
+        |        "to": "node_fileRepositoryHydro",
+        |        "inport": "1"
+        |      },
+        |      {
+        |        "from": "node_fileRepositoryHydro",
+        |        "to": "fileRepositorySelect",
+        |        "inport": "0"
+        |      },
+        |      {
+        |        "from": "sourceTfwDir",
+        |        "to": "fileRepositoryGeoTransMain",
+        |        "inport": "0"
+        |      },
+        |      {
+        |        "from": "sourceLabelsDir",
+        |        "to": "fileRepositoryGeoTransMain",
+        |        "inport": "1"
+        |      },
+        |      {
+        |        "from": "fileRepositoryGeoTransMain",
+        |        "to": "fileRepositorySelect",
+        |        "inport": "1"
+        |      }
+        |    ],
+        |    "stops": [
+        |      {
+        |        "id": "sourceCsv",
+        |        "type": "SourceNode",
+        |        "properties": {
+        |          "path": "dacp://0.0.0.0:3103/2019年中国榆林市沟道信息.csv"
+        |        }
+        |      },
+        |      {
+        |        "id": "sourceTif",
+        |        "type": "SourceNode",
+        |        "properties": {
+        |          "path": "dacp://0.0.0.0:3103/2019年中国榆林市30m数字高程数据集.tif"
+        |        }
+        |      },
+        |      {
+        |        "id": "sourceGEO",
+        |        "type": "SourceNode",
+        |        "properties": {
+        |          "path": "dacp://0.0.0.0:3103/geo_entropy.csv"
+        |        }
+        |      },
+        |      {
+        |        "id": "sourceLabelsDir",
+        |        "type": "SourceNode",
+        |        "properties": {
+        |          "path": "dacp://0.0.0.0:3103/op2/labels"
+        |        }
+        |      },
+        |      {
+        |        "id": "sourceTfwDir",
+        |        "type": "SourceNode",
+        |        "properties": {
+        |          "path": "dacp://0.0.0.0:3103/op2/tfw"
+        |        }
+        |      },
+        |      {
+        |        "id": "gully",
+        |        "type": "RepositoryNode",
+        |        "properties": {
+        |          "name": "gully_slop",
+        |          "version" : "0.5.0-20251127-2"
+        |        }
+        |      },
+        |      {
+        |        "id": "node_fileRepositoryHydro",
+        |        "type": "RepositoryNode",
+        |        "properties": {
+        |          "name": "hydro_susceptibility",
+        |          "version" : "0.5.0-20251127-1"
+        |        }
+        |      },
+        |      {
+        |        "id": "fileRepositoryGeoTransMain",
+        |        "type": "RepositoryNode",
+        |        "properties": {
+        |          "name": "geotrans",
+        |          "version" : "0.5.0-20251115-2"
+        |        }
+        |      },
+        |      {
+        |        "id": "fileRepositorySelect",
+        |        "type": "RepositoryNode",
+        |        "properties": {
+        |          "name": "overlap_dam_select",
+        |          "version" : "0.5.0-20251127-1"
+        |        }
+        |      }
+        |    ]
+        |  }
+        |}""".stripMargin
+    val dc = DacpClient.connect("dacp://0.0.0.0:3102", UsernamePassword("admin", "admin"))
+    val dfs: ExecutionResult = dc.cook(sourceJson)
+    dfs.single().foreach(println)
   }
 }

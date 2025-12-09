@@ -429,7 +429,7 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
 
   override def applyToDataFrames(inputs: Seq[DataFrame], ctx: FlowExecutionContext): DataFrame = {
     dockerContainer.start()
-    outputFilePath.foreach(path => {
+    val outputFile = outputFilePath.map(path => {
       if (path._2 == FileType.DIRECTORY) {
         val dir = new File(path._1)
         dir.deleteOnExit()
@@ -475,7 +475,7 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
     if (outputFilePath.head._2 == FileType.DIRECTORY) {
       runOperator()
       DataStreamSource.filePath(new File(outputFilePath.head._1)).dataFrame
-    } else FileDataFrame(FilePipe.fromFilePath(outputFilePath.head._1, outputFilePath.head._2), outputFilePath.head._2)
+    } else FileDataFrame(outputFile.head.asInstanceOf[FilePipe], outputFilePath.head._2)
   }
 
   private def writeBlobToFile(blob: Blob, file: File): Unit = {

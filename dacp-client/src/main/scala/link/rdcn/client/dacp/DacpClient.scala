@@ -143,10 +143,6 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
   }
 
   def cook(recipeString: String): ExecutionResult = {
-//    FlowBuilder.convert(recipeString) match {
-//      case Right(flow) => cook(flow)
-//      case Left(message) => throw new IllegalArgumentException(s"Invalid DACP URL: $message")
-//    }
     val transformOp = transformFlowJsonToOperation(recipeString)
     val dfs: Seq[DataFrame] = Seq(RemoteDataFrameProxy(transformOp, getCookRows))
     new ExecutionResult() {
@@ -220,15 +216,22 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
       nodesMap(stop.getString("id")) = stop
     }
 
-    val incomingEdges = MMap[String, mutable.Buffer[String]]()
-    val allSourceIds = mutable.Set[String]() // 所有作为起点的ID
+    val incomingEdges = MMap[String, mutable.Buffer[(String, Int)]]()
+    val allSourceIds = mutable.Set[String]()
 
     for (i <- 0 until pathsArray.length()) {
       val path = pathsArray.getJSONObject(i)
       val from = path.getString("from")
       val to = path.getString("to")
 
-      incomingEdges.getOrElseUpdate(to, mutable.Buffer()) += from
+      val inportStr = path.optString("inport", "0")
+      val inport = try {
+        inportStr.toInt
+      } catch {
+        case _: NumberFormatException => 0
+      }
+
+      incomingEdges.getOrElseUpdate(to, mutable.Buffer()) += ((from, inport))
       allSourceIds.add(from)
     }
 
@@ -244,32 +247,40 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
       val nodeType = nodeJson.getString("type")
       val properties = nodeJson.optJSONObject("properties", new JSONObject())
 
-      val inputIds = incomingEdges.getOrElse(currentId, Seq.empty)
-      val inputOps = inputIds.map(recursiveBuild).toSeq
+      val edges = incomingEdges.getOrElse(currentId, mutable.Buffer.empty)
+
+      val sortedInputIds = edges.sortBy(_._2).map(_._1)
+
+      val inputOps = sortedInputIds.map(recursiveBuild).toSeq
 
       nodeType match {
-        // Source
-        case "SourceNode" | "SourceOp" =>
+        case "SourceNode" =>
           val path = if (properties.has("dataFrameName")) properties.getString("dataFrameName")
           else properties.optString("path", "")
           SourceOp(path)
+
         case "RepositoryNode" =>
           val jo = new JSONObject()
           jo.put("type", LangTypeV2.REPOSITORY_OPERATOR.name)
           jo.put("functionName", properties.get("name").asInstanceOf[String])
           jo.put("functionVersion", properties.get("version").asInstanceOf[String])
+
           TransformerNode(
             TransformFunctionWrapper.fromJsonObject(jo).asInstanceOf[RepositoryOperator],
-            inputOps: _*)
+            inputOps: _*
+          )
 
         case "RemoteDataFrameFlowNode" =>
-          RemoteSourceProxyOp(properties.get("baseUrl").asInstanceOf[String],
-            transformFlowJsonToOperation(new JSONObject().put("flow",new JSONObject(properties.get("flow").asInstanceOf[String])).toString),
-            properties.get("certificate").asInstanceOf[String])
+          RemoteSourceProxyOp(
+            properties.get("baseUrl").asInstanceOf[String],
+            transformFlowJsonToOperation(new JSONObject().put("flow", new JSONObject(properties.get("flow").asInstanceOf[String])).toString),
+            properties.get("certificate").asInstanceOf[String]
+          )
 
         case other => throw new IllegalArgumentException(s"Unknown FlowNode type: $other at id: $currentId")
       }
     }
+
     recursiveBuild(rootId)
   }
 
