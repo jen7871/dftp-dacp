@@ -11,6 +11,7 @@ import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.util.{Failure, Success}
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.collection.JavaConverters._
 
 /**
  * @Author renhao
@@ -18,10 +19,24 @@ import scala.concurrent.ExecutionContext.Implicits.global
  * @Data 2025/9/26 16:00
  * @Modified By:
  */
-trait FlowExecutionContext extends link.rdcn.operation.ExecutionContext with Logging{
+trait FlowExecutionContext extends link.rdcn.operation.ExecutionContext with Logging {
 
   private[this] val asyncResults = new ConcurrentHashMap[TransformOp, Future[DataFrame]]()
   private[this] val asyncResultsList = new ArrayBuffer[Thread]()
+
+  Runtime.getRuntime.addShutdownHook(new Thread(() => {
+    logger.info("JVM shutting down, releasing resources...")
+
+    asyncResults.keys().asScala.foreach { op =>
+      try {
+        op.asInstanceOf[TransformerNode].release()
+      } catch {
+        case e: Exception => e.printStackTrace()
+      }
+    }
+
+    asyncResultsList.foreach { op => if (op != null) op.interrupt() }
+  }))
 
   def registerAsyncResult(transformOp: TransformOp, future: Future[DataFrame],
                           thread: Thread): Unit = {

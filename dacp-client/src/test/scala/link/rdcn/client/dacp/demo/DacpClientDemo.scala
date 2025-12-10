@@ -9,8 +9,8 @@ import link.rdcn.dacp.optree.RepositoryClient
 import link.rdcn.dacp.optree.fifo.{DockerContainer, FileType}
 import link.rdcn.dacp.recipe._
 import link.rdcn.dacp.user.{DataOperationType, PermissionService, PermissionServiceModule}
-import link.rdcn.server.{DftpActionRequest, DftpServer, DftpServerConfig, ServerContext}
 import link.rdcn.server.module.{BaseDftpModule, DataFrameProviderService, UserPasswordAuthModule}
+import link.rdcn.server.{DftpServer, DftpServerConfig, ServerContext}
 import link.rdcn.struct.ValueType.StringType
 import link.rdcn.struct._
 import link.rdcn.user._
@@ -24,7 +24,6 @@ import java.io.File
 import java.nio.file.{Files, Path, Paths}
 import scala.concurrent.Await
 import scala.concurrent.duration.DurationInt
-import org.apache.commons.io.FileUtils
 
 object DacpClientDemo {
 
@@ -482,7 +481,7 @@ class DacpClientDemo {
       )
     )
 
-//    val result = dc.cook(recipe)
+    //    val result = dc.cook(recipe)
     import link.rdcn.dacp.optree.TransformTree
     val result = dc.executeTransformTree(TransformTree.fromJsonString("{\n  \"input\" : [ {\n    \"input\" : [ {\n      \"input\" : [ {\n        \"type\" : \"SourceOp\",\n        \"dataFrameName\" : \"dacp://0.0.0.0:3103/geo_entropy.csv\"\n      }, {\n        \"input\" : [ {\n          \"type\" : \"SourceOp\",\n          \"dataFrameName\" : \"dacp://0.0.0.0:3103/2019年中国榆林市沟道信息.csv\"\n        }, {\n          \"type\" : \"SourceOp\",\n          \"dataFrameName\" : \"dacp://0.0.0.0:3103/2019年中国榆林市30m数字高程数据集.tif\"\n        } ],\n        \"function\" : {\n          \"functionVersion\" : \"0.5.0-20251115-1\",\n          \"functionName\" : \"gully_slop\",\n          \"type\" : \"REPOSITORY_OPERATOR\"\n        },\n        \"type\" : \"TransformerNode\"\n      } ],\n      \"function\" : {\n        \"functionVersion\" : \"0.5.0-20251115-1\",\n        \"functionName\" : \"hydro_susceptibility\",\n        \"type\" : \"REPOSITORY_OPERATOR\"\n      },\n      \"type\" : \"TransformerNode\"\n    }, {\n      \"input\" : [ {\n        \"type\" : \"SourceOp\",\n        \"dataFrameName\" : \"dacp://0.0.0.0:3103/op2/tfw\"\n      }, {\n        \"type\" : \"SourceOp\",\n        \"dataFrameName\" : \"dacp://0.0.0.0:3103/op2/labels\"\n      } ],\n      \"function\" : {\n        \"functionVersion\" : \"0.5.0-20251115-2\",\n        \"functionName\" : \"geotrans\",\n        \"type\" : \"REPOSITORY_OPERATOR\"\n      },\n      \"type\" : \"TransformerNode\"\n    } ],\n    \"function\" : {\n      \"functionVersion\" : \"0.5.0-20251115-1\",\n      \"functionName\" : \"overlap_dam_select\",\n      \"type\" : \"REPOSITORY_OPERATOR\"\n    },\n    \"type\" : \"TransformerNode\"\n  } ],\n  \"type\" : \"FifoFileNode\"\n}"))
     result.foreach(println)
@@ -516,6 +515,7 @@ class DacpClientDemo {
   }
 
   import java.nio.file.Files
+
   @Test
   def uploadPackageImageGullyTest(): Unit = {
     val client: OperatorClient = OperatorClient.connect("http://10.0.89.39:8090", null)
@@ -557,7 +557,6 @@ class DacpClientDemo {
     Files.delete(paramFile)
   }
 
-  import java.nio.file.Files
   @Test
   def uploadPackageImageHydroTest(): Unit = {
     val client: OperatorClient = OperatorClient.connect("http://10.0.89.39:8090", null)
