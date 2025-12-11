@@ -102,7 +102,7 @@ case class TransformerNode(transformFunctionWrapperT: TransformFunctionWrapper, 
   def release(): Unit = {
     if(transformFunctionWrapper.isInstanceOf[FileRepositoryBundle]){
       transformFunctionWrapper.asInstanceOf[FileRepositoryBundle]
-        .deleteFiFOFile
+        .deleteFile
     }
     inputTransforms.foreach(input => {
       if(input.isInstanceOf[TransformerNode]){
@@ -145,7 +145,19 @@ case class TransformerNode(transformFunctionWrapperT: TransformFunctionWrapper, 
             }
           }
           flowCtx.registerAsyncResult(this, future, thread)
-      case bundle: FileRepositoryBundle if bundle.outputFilePath.head._2 == FileType.MMAP_FILE => bundle.runOperator()
+      case bundle: FileRepositoryBundle if bundle.outputFilePath.head._2 == FileType.MMAP_FILE =>
+        try {
+          bundle.runOperator()
+        } catch {
+          case e: Exception =>
+            e.printStackTrace()
+        } finally {
+          try {
+            this.asInstanceOf[TransformerNode].release()
+          } catch {
+            case e: Exception => e.printStackTrace()
+          }
+        }
       case _ =>
     }
     result

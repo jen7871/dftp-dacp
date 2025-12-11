@@ -402,7 +402,7 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
     } else DataStreamSource.filePath(new File(outputFilePath.head._1)).dataFrame
   }
 
-  def deleteFiFOFile(): Unit = {
+  def deleteFile(): Unit = {
     def safeDelete(pathStr: String): Unit = {
       if (pathStr != null && pathStr.nonEmpty) {
         try {
