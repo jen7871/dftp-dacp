@@ -393,12 +393,12 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
     jo
   }
 
-  def runOperator(): DataFrame = {
+  def runOperator(outputDataFrame: DataFrame): DataFrame = {
     DockerExecute.nonInteractiveExec(command.toArray, dockerContainer.containerName) //"jyg-container"
     dockerContainer.stop()
     if (outputFilePath.head._2 != FileType.DIRECTORY) {
       //TODO: support outputting multiple DataFrames
-      FileDataFrame(FilePipe.fromFilePath(outputFilePath.head._1, outputFilePath.head._2), outputFilePath.head._2)
+      outputDataFrame
     } else DataStreamSource.filePath(new File(outputFilePath.head._1)).dataFrame
   }
 
@@ -473,8 +473,7 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
     })
     //TODO: support outputting multiple DataFrames
     if (outputFilePath.head._2 == FileType.DIRECTORY) {
-      runOperator()
-      DataStreamSource.filePath(new File(outputFilePath.head._1)).dataFrame
+      runOperator(DataStreamSource.filePath(new File(outputFilePath.head._1)).dataFrame)
     } else FileDataFrame(outputFile.head.asInstanceOf[FilePipe], outputFilePath.head._2)
   }
 

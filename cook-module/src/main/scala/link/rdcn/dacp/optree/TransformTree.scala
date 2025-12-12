@@ -137,7 +137,7 @@ case class TransformerNode(transformFunctionWrapperT: TransformFunctionWrapper, 
           val future: Future[DataFrame] = Future {
             try {
               thread = Thread.currentThread()
-              bundle.runOperator()
+              bundle.runOperator(result)
             } catch {
               case t: Throwable =>
                 t.printStackTrace()
@@ -147,7 +147,7 @@ case class TransformerNode(transformFunctionWrapperT: TransformFunctionWrapper, 
           flowCtx.registerAsyncResult(this, future, thread)
       case bundle: FileRepositoryBundle if bundle.outputFilePath.head._2 == FileType.MMAP_FILE =>
         try {
-          bundle.runOperator()
+          bundle.runOperator(result)
         } catch {
           case e: Exception =>
             e.printStackTrace()
