@@ -4,7 +4,7 @@
  * @Data 2025/11/5 11:00
  * @Modified By:
  */
-package link.rdcn.catalog
+package link.rdcn.dacp.catalog
 
 // 导入被测代码所依赖的 CatalogFormatter 方法
 import link.rdcn.struct.ValueType.{LongType, RefType, StringType}

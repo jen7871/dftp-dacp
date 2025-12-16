@@ -4,9 +4,9 @@
  * @Data 2025/11/5 18:17
  * @Modified By:
  */
-package link.rdcn.catalog
+package link.rdcn.dacp.catalog
 
-import link.rdcn.catalog.MockCatalogData.{mockDoc, mockStats}
+import MockCatalogData.{mockDoc, mockStats}
 import link.rdcn.dacp.catalog.{CatalogService, CatalogServiceRequest}
 import link.rdcn.server.{Anchor, CrossModuleEvent, EventHandler, ServerContext}
 import link.rdcn.struct.ValueType.{IntType, StringType}
@@ -25,13 +25,15 @@ class MockServerContext extends ServerContext {
   override def getDftpHome(): Option[String] = None
 }
 
-
 /**
  * 模拟 CatalogService 返回的常量数据
  */
 object MockCatalogData {
   val mockSchema: StructType = StructType.empty.add("id", IntType).add("name", StringType)
   val mockTitle: String = "My Mock Table"
+  def mockDF: DataFrame = DefaultDataFrame(
+    mockSchema, Seq(Row(1, "data")).iterator
+  )
   val mockStats: DataFrameStatistics = new DataFrameStatistics {
 
     override def rowCount: Long = 123L

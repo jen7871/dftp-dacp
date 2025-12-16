@@ -4,7 +4,7 @@
  * @Data 2025/11/5 11:00
  * @Modified By:
  */
-package link.rdcn.catalog
+package link.rdcn.dacp.catalog
 
 import link.rdcn.dacp.catalog.CatalogFormatter
 import link.rdcn.dacp.catalog.ConfigKeys.{FAIRD_HOST_PORT, FAIRD_HOST_POSITION}
