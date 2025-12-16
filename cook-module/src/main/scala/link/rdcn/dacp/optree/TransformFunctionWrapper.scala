@@ -449,9 +449,9 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
             val blob = f.collect().head.getAs[Blob](0)
             val file = new File(dfAndInput._2._1)
             writeBlobToFile(blob, file)
-          } else if (f.schema.contains("file") && f.schema.getType("file").get == ValueType.BlobType) {
+          } else if (f.schema.contains("File") && f.schema.getType("File").get == ValueType.BlobType) {
 //            文件夹
-            val fileIndex = f.schema.indexOf("file").get
+            val fileIndex = f.schema.indexOf("File").get
             val dir = Paths.get(dfAndInput._2._1).toFile
             dir.deleteOnExit()
             dir.mkdirs()
@@ -468,7 +468,7 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
             if (dfAndInput._2._2 == FileType.FIFO_BUFFER) {
               val future = Future {
                 FilePipe.fromFilePath(dfAndInput._2._1, dfAndInput._2._2)
-                  .write(f.mapIterator(iter => Seq(f.schema.columns.map(_.name).mkString(",")).iterator ++ iter.map(row => row.toSeq.mkString(",")) ))
+                  .write(f.mapIterator(iter => Seq(f.schema.columns.map(_.name).mkString(",")).iterator ++ iter.map(row => row.toSeq.mkString(","))))
               }
               future onComplete {
                 case Success(value) => logger.debug(s"load ${dfAndInput._2._1} success")
@@ -476,7 +476,8 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
                   throw e
               }
             } else {
-              FilePipe.fromFilePath(dfAndInput._2._1, dfAndInput._2._2).write(f.mapIterator(iter => iter.map(row => row.toSeq.mkString(","))))
+//            MMAP文件
+              FilePipe.fromFilePath(dfAndInput._2._1, dfAndInput._2._2).write(f.mapIterator(iter => Seq(f.schema.columns.map(_.name).mkString(",")).iterator ++ iter.map(row => row.toSeq.mkString(","))))
             }
           }
       }

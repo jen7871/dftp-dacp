@@ -116,10 +116,10 @@ object DacpClientDemo {
         //      op4/geo_entropy.csv
         case url if UrlValidator.extractPath(url) == "/geo_entropy.csv" =>
           val csvFile = new java.io.File("/data2/work/ncdc/faird/temp/op4/geo_entropy.csv")
-          DataStreamSource.csv(csvFile, Some(","), false).dataFrame
+          DataStreamSource.csv(csvFile, Some(","), true).dataFrame
         case url if UrlValidator.extractPath(url) == "/2019年中国榆林市沟道信息.csv" =>
           val csvFile = new java.io.File("/data2/work/ncdc/faird/temp/op1/2019年中国榆林市沟道信息.csv")
-          DataStreamSource.csv(csvFile, Some(","), false).dataFrame
+          DataStreamSource.csv(csvFile, Some(","), true).dataFrame
         case url if UrlValidator.extractPath(url) == "/2019年中国榆林市30m数字高程数据集.tif" =>
           val tifFile = new java.io.File("/data2/work/ncdc/faird/temp/op1/2019年中国榆林市30m数字高程数据集.tif")
           DataFrame.fromSeq(Seq(Blob.fromFile(tifFile)))
