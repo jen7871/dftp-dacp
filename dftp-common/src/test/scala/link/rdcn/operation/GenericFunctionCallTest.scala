@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test
 
 class GenericFunctionCallTest {
 
-  // 测试 SingleRowCall
+  // Test SingleRowCall
   @Test
   def testSingleRowCallWithCorrectInput(): Unit = {
     val f = new SerializableFunction[Row, String] {
@@ -33,7 +33,8 @@ class GenericFunctionCallTest {
       override def apply(row: Row): Any = row
     }
     val call = SingleRowCall(f)
-    val incorrectInput = "This is a string" // 错误的输入类型
+    val incorrectInput = "This is a string" // Wrong input type
+
     var exceptionThrown = false
     try {
       call.transform(incorrectInput)
@@ -45,7 +46,7 @@ class GenericFunctionCallTest {
     assertTrue(exceptionThrown)
   }
 
-  // 测试 RowPairCall
+  // Test RowPairCall
   @Test
   def testRowPairCallWithCorrectInput(): Unit = {
     val f = new SerializableFunction[(Row, Row), String] {
@@ -63,9 +64,10 @@ class GenericFunctionCallTest {
       override def apply(rows: (Row, Row)): Any = rows
     }
     val call = RowPairCall(f)
-    val incorrectInput = ("row1", "row2") // 错误的输入类型
-    val exception = assertThrows(
-      classOf[IllegalArgumentException], () => call.transform(incorrectInput))
+    val incorrectInput = ("row1", "row2") // Wrong input type
+    val exception = assertThrows(classOf[IllegalArgumentException], () => {
+      call.transform(incorrectInput)
+    })
     assertEquals("Expected (Row, Row) but got (row1,row2)", exception.getMessage)
   }
 }

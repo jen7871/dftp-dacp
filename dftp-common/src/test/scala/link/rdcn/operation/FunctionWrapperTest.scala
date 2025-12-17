@@ -15,9 +15,10 @@ import org.junit.jupiter.api.Test
 import java.util.Base64
 
 class FunctionWrapperJunitTest {
+  // Ensure interpreter is loaded
   SharedInterpreterManager.getInterpreter
 
-  // 基础数据
+  // Basic Data
   private val baseRow = Row.fromSeq(Seq(1, 1))
   private val baseRow2 = Row.fromSeq(Seq(2, 2))
   private val dataFrame = DataFrame.fromSeq(Seq(1, 1))
@@ -25,10 +26,11 @@ class FunctionWrapperJunitTest {
   private val dataFrame2 = DataFrame.fromSeq(Seq(1, 1))
   private val expectedDataFrame = DataFrame.fromSeq(Seq(2, 2))
   private val baseIter = expectedDataFrame.asInstanceOf[DefaultDataFrame].stream
+
+  // Local Mock ExecutionContext
   val ctx = new ExecutionContext {
     override def loadSourceDataFrame(dataFrameNameUrl: String): Option[DataFrame] = ???
   }
-
 
   @Test
   def testPythonCodeToJson(): Unit = {
@@ -62,12 +64,12 @@ class FunctionWrapperJunitTest {
     val pythonCode = FunctionWrapper.PythonCode("output_data = [[33]]", batchSize = 1)
     val resultIter = pythonCode.applyToInput(baseIter, ctx).asInstanceOf[Iterator[Row]]
 
-    // 触发 hasNext 第一次调用
+    // Trigger hasNext first call
     val firstRow = resultIter.next()
 
     assertEquals(33L, firstRow.values.head, "First row should be mapped from mock output")
 
-    // 触发 hasNext 第二次调用 (batchSize=1，所以会再次调用 grouped.hasNext)
+    // Trigger hasNext second call (batchSize=1, so grouped.hasNext is called again)
     val secondRow = resultIter.next()
 
     assertEquals(33L, secondRow.values.head, "Second row should be mapped from mock output")
@@ -75,32 +77,30 @@ class FunctionWrapperJunitTest {
     assertTrue(!resultIter.hasNext, "Iterator should be exhausted")
   }
 
-  @Test()
+  @Test
   def testPythonCodeNoInterpreter(): Unit = {
-    val ctx = new ExecutionContext {
+    val ctxNoInterpreter = new ExecutionContext {
       override def loadSourceDataFrame(dataFrameNameUrl: String): Option[DataFrame] = ???
-
       override def getSharedInterpreter(): Option[SharedInterpreter] = None
-    } // 无解释器
+    }
     val pythonCode = FunctionWrapper.PythonCode("code")
-    val exception = assertThrows(
-      classOf[IllegalArgumentException],
-      () => pythonCode.applyToInput(baseRow, ctx)
-    )
+
+    assertThrows(classOf[IllegalArgumentException], () => {
+      pythonCode.applyToInput(baseRow, ctxNoInterpreter)
+    })
   }
 
-  @Test()
+  @Test
   def testPythonCodeUnsupportedInput(): Unit = {
     val pythonCode = FunctionWrapper.PythonCode("code")
 
-    val exception = assertThrows(
-      classOf[IllegalArgumentException],
-      () => pythonCode.applyToInput("unsupported_type", ctx)
-    )
+    val exception = assertThrows(classOf[IllegalArgumentException], () => {
+      pythonCode.applyToInput("unsupported_type", ctx)
+    })
     assertEquals("Unsupported input: unsupported_type", exception.getMessage, "Exception message should indicate unsupported input type")
-
   }
 
+  // Local Serializable Functions
   val mockRowPairFunction = new SerializableFunction[(Row, Row), Any] {
     override def apply(v: (Row, Row)): Any = {
       v._1._1.asInstanceOf[Int] + v._2._1.asInstanceOf[Int]
@@ -109,11 +109,11 @@ class FunctionWrapperJunitTest {
 
   val mockIteratorRowFunction = new SerializableFunction[Iterator[Row], Any] {
     override def apply(v: Iterator[Row]): Any = {
-      v.map(row=>Row(row._1.asInstanceOf[Int]+1))
+      v.map(row => Row(row._1.asInstanceOf[Int] + 1))
     }
   }
 
-  val mockDataFramePairFunction = new SerializableFunction[(DataFrame,DataFrame), DataFrame] {
+  val mockDataFramePairFunction = new SerializableFunction[(DataFrame, DataFrame), DataFrame] {
     override def apply(v: (DataFrame, DataFrame)): DataFrame = {
       val left: List[Int] = v._1.collect().map(row => row._1.asInstanceOf[Int])
       val right: List[Int] = v._2.collect().map(row => row._1.asInstanceOf[Int])
@@ -121,7 +121,7 @@ class FunctionWrapperJunitTest {
     }
   }
 
-  // 创建一个 Base64 编码的序列化 MockGenericFunctionCall
+  // Create Base64 encoded serialized MockGenericFunctionCall
   private val serializedSingleRowCall: String = {
     val bytes = FunctionSerializer.serialize(SingleRowCall(new SerializableFunction[Row, Row] {
       override def apply(v1: Row): Row = v1
@@ -194,14 +194,13 @@ class FunctionWrapperJunitTest {
   }
 
   @Test
-  def testJavaBinApplyToInputdataFrame(): Unit = {
+  def testJavaBinApplyToInputDataFrame(): Unit = {
     val javaBin = FunctionWrapper.JavaBin(serializedDataFrameCall11)
     val result = javaBin.applyToInput(dataFrame, ctx)
 
     assertEquals(dataFrame, result, "Mock transform should receive the DataFrame")
   }
 
-  // 覆盖 case dfs: (DataFrame, DataFrame) => ...
   @Test
   def testJavaBinApplyToInputTwoDataFrames(): Unit = {
     val javaBin = FunctionWrapper.JavaBin(serializedDataFrameCall21)
@@ -210,15 +209,14 @@ class FunctionWrapperJunitTest {
     assertEquals(2, result.asInstanceOf[DefaultDataFrame].collect().head._1, "Mock transform should receive the Tuple of DataFrames")
   }
 
-
   @Test
   def testJavaBinUnsupportedInput(): Unit = {
     val javaBin = FunctionWrapper.JavaBin(serializedSingleRowCall)
 
-    val exception = assertThrows(
-      classOf[IllegalArgumentException], () => javaBin.applyToInput("unsupported_type", ctx))
-    assertEquals(s"Unsupported input: unsupported_type", exception.getMessage)
-
+    val exception = assertThrows(classOf[IllegalArgumentException], () => {
+      javaBin.applyToInput("unsupported_type", ctx)
+    })
+    assertEquals("Unsupported input: unsupported_type", exception.getMessage)
   }
 
   @Test
@@ -243,11 +241,9 @@ class FunctionWrapperJunitTest {
     assertTrue(wrapper.isInstanceOf[FunctionWrapper.JavaBin], "Factory should return JavaBin")
   }
 
-
   @Test
   def testGetJavaSerialized(): Unit = {
-
-    // 覆盖 getJavaSerialized
+    // Cover getJavaSerialized
     val javaBin = FunctionWrapper.getJavaSerialized(SingleRowCall(new SerializableFunction[Row, Row] {
       override def apply(v1: Row): Row = v1
     }))
@@ -255,7 +251,7 @@ class FunctionWrapperJunitTest {
     assertTrue(javaBin.isInstanceOf[FunctionWrapper.JavaBin], "Result should be JavaBin")
     assertTrue(javaBin.serializedBase64.length > 0, "Base64 string should not be empty")
 
-    // 验证反向解码的类型是否正确 (通过 lazy val 触发)
+    // Verify reverse deserialization type (via lazy val)
     assertTrue(javaBin.genericFunctionCall.isInstanceOf[SingleRowCall], "Deserialized content should be MockGenericFunctionCall")
   }
 }

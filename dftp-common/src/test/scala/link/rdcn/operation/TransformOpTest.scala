@@ -14,8 +14,6 @@ import java.util.Collections
 import scala.collection.JavaConverters.seqAsJavaListConverter
 
 class TransformOpTest {
-
-  // Helper functions for creating test data
   def createMapOpJson(functionJson: JSONObject, inputJson: JSONObject): String = {
     new JSONObject()
       .put("type", "Map")

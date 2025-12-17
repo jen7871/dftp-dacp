@@ -6,92 +6,140 @@
  */
 package link.rdcn.struct
 
-import link.rdcn.CommonTestBase.DataFrameInfo
-import link.rdcn.CommonTestProvider
-import link.rdcn.CommonTestProvider.{csvDir, dataProvider, totalLines}
 import link.rdcn.struct.ValueType.{DoubleType, LongType, StringType}
+import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.api.Test
 
-import java.io.File
-import java.nio.file.Paths
+import java.io.{File, FileOutputStream}
+import java.nio.charset.StandardCharsets
+import java.nio.file.{Files, Path}
 import scala.io.Source
 
-class DataStreamSourceTest extends CommonTestProvider {
+class DataStreamSourceTest {
+
+  @TempDir
+  var tempDir: Path = _
+
+  // Helper to create a CSV file
+  private def createCsvFile(name: String, content: String): File = {
+    val file = tempDir.resolve(name).toFile
+    Files.write(file.toPath, content.getBytes(StandardCharsets.UTF_8))
+    file
+  }
+
+  // Helper to create a simple Excel file
+  private def createExcelFile(name: String, rowCount: Int): File = {
+    val file = tempDir.resolve(name).toFile
+    val wb = new XSSFWorkbook()
+    val sheet = wb.createSheet("Sheet1")
+
+    // Header
+    val header = sheet.createRow(0)
+    header.createCell(0).setCellValue("id")
+    header.createCell(1).setCellValue("value")
+
+    for (i <- 1 to rowCount) {
+      val row = sheet.createRow(i)
+      row.createCell(0).setCellValue(i.toDouble)
+      row.createCell(1).setCellValue(i * 1.5)
+    }
+
+    val fos = new FileOutputStream(file)
+    wb.write(fos)
+    fos.close()
+    wb.close()
+    file
+  }
 
   @Test
   def testCsvWithHeader(): Unit = {
-    val csvDataFrameInfo: DataFrameInfo = dataProvider.getDataFrameInfo("/csv/data_1.csv").getOrElse(null)
-    val mockFile = new File(csvDataFrameInfo.path)
-    val csvSource = Source.fromFile(Paths.get(csvDir, "data_1.csv").toString)
-    val expectedOutput = csvSource.getLines().toSeq.tail.toList.head
+    // Prepare data
+    val csvContent = "id,value\n1,10.5\n2,20.0"
+    val mockFile = createCsvFile("data_header.csv", csvContent)
 
-    // 覆盖 csv 方法
+    // Execute: DataStreamSource.csv
     val source = DataStreamSource.csv(mockFile, delimiter = Some(","))
 
-    // 验证返回的 DataStreamSource 属性
-    assertEquals(10001L, source.rowCount, "rowCount must match mock countLinesFast result")
-    assertEquals(StructType.empty.add("id", LongType).add("value", DoubleType), source.schema, "Schema must match mock inferSchema result")
+    // Verify properties
+    // Note: countLinesFast counts physical lines. Header + 2 rows = 3 lines.
+    assertEquals(3L, source.rowCount, "rowCount must match line count of file")
+
+    val expectedSchema = StructType.empty.add("id", LongType).add("value", DoubleType)
+    assertEquals(expectedSchema, source.schema, "Schema must be inferred correctly from header and data")
 
     val iter = source.iterator
     val rows = iter.toList
-    assertEquals(expectedOutput, rows.toSeq.map(row=>s"${row._1},${row._2}").head, "Data must match mock data result")
-    csvSource.close()
+
+    // Validate first row data (Iterator skips header if inferred)
+    val firstRow = rows.head
+    assertEquals(1L, firstRow.get(0), "First column of first row must be 1")
+    assertEquals(10.5, firstRow.get(1), "Second column of first row must be 10.5")
   }
 
   @Test
   def testCsvWithoutHeader(): Unit = {
-    val csvDataFrameInfo: DataFrameInfo = dataProvider.getDataFrameInfo("/csv/data_1.csv").getOrElse(null)
-    val mockFile = new File(csvDataFrameInfo.path)
-    val csvSource = Source.fromFile(Paths.get(csvDir, "data_1.csv").toString)
-    val expectedOutput = csvSource.getLines().toSeq.toList.head
+    // Prepare data (No header)
+    val csvContent = "val1,val2\nval3,val4"
+    val mockFile = createCsvFile("data_no_header.csv", csvContent)
 
-    // 覆盖 csv 方法
-    val source = DataStreamSource.csv(mockFile, delimiter = Some(","), false)
+    // Execute: DataStreamSource.csv with header=false
+    val source = DataStreamSource.csv(mockFile, delimiter = Some(","), header = false)
 
-    // 验证返回的 DataStreamSource 属性
-    assertEquals(10001L, source.rowCount, "rowCount must match mock countLinesFast result")
-    assertEquals(StructType.empty.add("_1", StringType).add("_2", StringType), source.schema, "Schema must match mock inferSchema result")
+    // Verify properties
+    assertEquals(2L, source.rowCount, "rowCount must match line count")
+
+    // Without header, columns are named _1, _2 and typed as String (default inference if mixed or unknown)
+    val expectedSchema = StructType.empty.add("_1", StringType).add("_2", StringType)
+    assertEquals(expectedSchema, source.schema, "Schema must use default names and inferred types")
 
     val iter = source.iterator
     val rows = iter.toList
-    assertEquals(expectedOutput, rows.toSeq.map(row=>s"${row._1},${row._2}").head, "Data must match mock data result")
-    csvSource.close()
+
+    val firstRow = rows.head
+    assertEquals("val1", firstRow.getAs[String](0), "First column value mismatch")
+    assertEquals("val2", firstRow.getAs[String](1), "Second column value mismatch")
   }
 
   @Test
   def testExcel(): Unit = {
-    val excelDataFrameInfo: DataFrameInfo = dataProvider.getDataFrameInfo("/excel/data_1.xlsx").getOrElse(null)
-    val file = new File(excelDataFrameInfo.path)
-    val excelPath = file.getPath
+    val totalRows = 5
+    val mockFile = createExcelFile("data.xlsx", totalRows)
+    val excelPath = mockFile.getPath
 
-    // 覆盖 excel 方法
+    // Execute: DataStreamSource.excel
     val source = DataStreamSource.excel(excelPath)
 
-    // 验证返回的 DataStreamSource 属性
-    assertEquals(-1L, source.rowCount, "rowCount must be -1")
+    // Verify properties
+    assertEquals(-1L, source.rowCount, "rowCount for Excel source is typically -1 (unknown until read)")
 
-    // 验证迭代器
+    // Verify iterator
     val iter = source.iterator
     val rows = iter.toList
-    assertEquals(totalLines, rows.size, "Iterator should contain 0 mock excel rows")
+    assertEquals(totalRows, rows.size, "Iterator should contain exactly the number of data rows created")
+    assertEquals(1.0, rows.head.getAs[Double](0), "First ID should be 1.0")
   }
 
   @Test
   def testFilePathNonRecursive(): Unit = {
-    val fileDataFrameInfo: DataFrameInfo = dataProvider.getDataFrameInfo("/bin").getOrElse(null)
-    val mockDir = new File(fileDataFrameInfo.path)
+    // Create a dummy file in the temp dir to list
+    createCsvFile("file1.bin", "content")
 
-    // 覆盖 filePath(dir, false)
+    val mockDir = tempDir.toFile
+
+    // Execute: DataStreamSource.filePath
     val source = DataStreamSource.filePath(mockDir, "")
 
-    // 验证返回的 DataStreamSource 属性
-    assertEquals(-1L, source.rowCount, "rowCount must be -1")
+    // Verify properties
+    assertEquals(-1L, source.rowCount, "rowCount for FilePath source is -1")
     assertEquals(StructType.binaryStructType, source.schema, "Schema must be binaryStructType")
 
-    // 验证迭代器内容 (Row.fromTuple(_))
+    // Verify iterator content
     val iter = source.iterator
     val row = iter.next()
+    // binaryStructType usually has: fileName, path, size, mTime, aTime, cTime, isDir, content(Blob)
     assertEquals(8, row.values.size, "Row must contain 8 file attributes and Blob")
+    assertEquals("file1.bin", row.getAs[String](0), "First column should be fileName")
   }
 }

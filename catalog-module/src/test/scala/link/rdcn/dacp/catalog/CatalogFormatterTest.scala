@@ -6,8 +6,8 @@
  */
 package link.rdcn.dacp.catalog
 
-import link.rdcn.dacp.catalog.CatalogFormatter
 import link.rdcn.dacp.catalog.ConfigKeys.{FAIRD_HOST_PORT, FAIRD_HOST_POSITION}
+import link.rdcn.server.ServerContext
 import link.rdcn.struct.{DataFrameDocument, DataFrameStatistics, StructType}
 import org.json.JSONObject
 import org.junit.jupiter.api.Assertions.{assertEquals, assertNotNull, assertTrue}
@@ -15,111 +15,110 @@ import org.junit.jupiter.api.Test
 
 
 class CatalogFormatterTest {
-  val mockStatistics = new DataFrameStatistics{
 
+  // Local mock objects
+  private val mockStatistics = new DataFrameStatistics{
     override def rowCount: Long = 1234L
-
     override def byteSize: Long = 5678L
   }
 
-  val mockDoc = new DataFrameDocument {
-
+  private val mockDoc = new DataFrameDocument {
     override def getSchemaURL(): Option[String] = ???
-
     override def getDataFrameTitle(): Option[String] = ???
-
     override def getColumnURL(colName: String): Option[String] = ???
-
     override def getColumnAlias(colName: String): Option[String] = ???
-
     override def getColumnTitle(colName: String): Option[String] = ???
   }
 
   /**
-   * 测试 getDataFrameStatisticsString 方法
+   * Test getDataFrameStatisticsString method
    */
   @Test
   def testDataFrameStatisticsString(): Unit = {
-
     val jsonString = CatalogFormatter.getDataFrameStatisticsString(mockStatistics)
-    assertNotNull(jsonString, "返回的 JSON 字符串不应为 null")
+    assertNotNull(jsonString, "Returned JSON string should not be null")
 
-    // 解析 JSON 以验证内容
+    // Parse JSON to verify content
     val jo = new JSONObject(jsonString)
 
-    assertEquals(1234L, jo.getLong("rowCount"), "rowCount 值不匹配")
-    assertEquals(5678L, jo.getLong("byteSize"), "byteSize 值不匹配")
+    assertEquals(1234L, jo.getLong("rowCount"), "Value of 'rowCount' does not match")
+    assertEquals(5678L, jo.getLong("byteSize"), "Value of 'byteSize' does not match")
   }
 
   /**
-   * 测试 getHostInfoString 方法
+   * Test getHostInfoString method
    */
   @Test
   def testHostInfoString(): Unit = {
-    val mockContext = new MockServerContext()
-    val jsonString = CatalogFormatter.getHostInfoString(mockContext)
-    assertNotNull(jsonString, "返回的 JSON 字符串不应为 null")
+    // Define MockServerContext locally using anonymous class
+    val mockContext = new ServerContext {
+      override def getHost(): String = "mock-host"
+      override def getPort(): Int = 9999
+      override def getProtocolScheme(): String = "dftp" // Unused but required by trait
+      override def getDftpHome(): Option[String] = None // Unused but required by trait
+    }
 
-    // 解析 JSON 以验证内容
+    val jsonString = CatalogFormatter.getHostInfoString(mockContext)
+    assertNotNull(jsonString, "Returned JSON string should not be null")
+
+    // Parse JSON to verify content
     val jo = new JSONObject(jsonString)
 
-    assertEquals("mock-host", jo.getString(FAIRD_HOST_POSITION), "主机位置 (position) 不匹配")
-    assertEquals("9999", jo.getString(FAIRD_HOST_PORT), "主机端口 (port) 不匹配")
+    assertEquals("mock-host", jo.getString(FAIRD_HOST_POSITION), "Host position does not match")
+    assertEquals("9999", jo.getString(FAIRD_HOST_PORT), "Host port does not match")
   }
 
   /**
-   * 测试 getResourceStatusString 方法
-   * 这将读取*实时*系统数据，因此我们只测试格式和键的存在性
+   * Test getResourceStatusString method
+   * This reads *real* system data, so we only test format and key existence
    */
   @Test
   def testResourceStatusString(): Unit = {
     val resourceMap = CatalogFormatter.getResourceStatusString()
-    assertNotNull(resourceMap, "返回的 Map 不应为 null")
+    assertNotNull(resourceMap, "Returned Map should not be null")
 
-    assertTrue(resourceMap.contains("cpu.cores"), "应包含 'cpu.cores' 键")
-    assertTrue(resourceMap.contains("cpu.usage.percent"), "应包含 'cpu.usage.percent' 键")
-    assertTrue(resourceMap.contains("jvm.memory.max.mb"), "应包含 'jvm.memory.max.mb' 键")
-    assertTrue(resourceMap.contains("system.memory.total.mb"), "应包含 'system.memory.total.mb' 键")
+    assertTrue(resourceMap.contains("cpu.cores"), "Map should contain key 'cpu.cores'")
+    assertTrue(resourceMap.contains("cpu.usage.percent"), "Map should contain key 'cpu.usage.percent'")
+    assertTrue(resourceMap.contains("jvm.memory.max.mb"), "Map should contain key 'jvm.memory.max.mb'")
+    assertTrue(resourceMap.contains("system.memory.total.mb"), "Map should contain key 'system.memory.total.mb'")
 
-    // 验证值的格式
-    assertTrue(resourceMap("cpu.usage.percent").endsWith("%"), "CPU 使用率应以 '%' 结尾")
-    assertTrue(resourceMap("jvm.memory.max.mb").endsWith(" MB"), "JVM 内存应以 ' MB' 结尾")
+    // Verify value format
+    assertTrue(resourceMap("cpu.usage.percent").endsWith("%"), "CPU usage should end with '%'")
+    assertTrue(resourceMap("jvm.memory.max.mb").endsWith(" MB"), "JVM memory should end with ' MB'")
   }
 
   /**
-   * 测试 getHostResourceString 方法
-   * 这将读取*实时*系统数据，因此我们只测试格式和键的存在性
+   * Test getHostResourceString method
+   * This reads *real* system data, so we only test format and key existence
    */
   @Test
   def testHostResourceString(): Unit = {
     val jsonString = CatalogFormatter.getHostResourceString()
-    assertNotNull(jsonString, "返回的 JSON 字符串不应为 null")
+    assertNotNull(jsonString, "Returned JSON string should not be null")
 
     val jo = new JSONObject(jsonString)
 
-    assertTrue(jo.has("cpu.cores"), "应包含 'cpu.cores' 键")
-    assertTrue(jo.has("jvm.memory.used.mb"), "应包含 'jvm.memory.used.mb' 键")
+    assertTrue(jo.has("cpu.cores"), "JSON should contain key 'cpu.cores'")
+    assertTrue(jo.has("jvm.memory.used.mb"), "JSON should contain key 'jvm.memory.used.mb'")
 
-    // 验证值是否为有效数字（或带 %/MB）
-    assertTrue(jo.getString("cpu.cores").toInt > 0, "CPU 核心数应大于 0")
+    // Verify value is a valid number (or contains %/MB, but here we check general validity)
+    // The previous test checked string format, here we just ensure content exists
+    assertTrue(jo.getString("cpu.cores").toInt > 0, "CPU cores should be greater than 0")
   }
 
   /**
-   * 测试 getDataFrameDocumentJsonString - 当 schema 为 None 时
-   * 这是 CatalogFormatter.scala 中可测试的路径之一
+   * Test getDataFrameDocumentJsonString - When schema is None
    */
   @Test
   def testDataFrameDocumentJsonString_SchemaNone(): Unit = {
-    // DataFrameDocument 的内容无关紧要，因为 schema 为 None
-
+    // Content of DataFrameDocument does not matter because schema is None
     val jsonString = CatalogFormatter.getDataFrameDocumentJsonString(mockDoc, None)
 
-    assertEquals("[]", jsonString, "当 schema 为 None 时，应返回一个空的 JSON 数组")
+    assertEquals("[]", jsonString, "Should return an empty JSON array when schema is None")
   }
 
   /**
-   * 测试 getDataFrameDocumentJsonString - 当 schema 为 Some(StructType.empty) 时
-   * 这是 CatalogFormatter.scala 中可测试的路径之一
+   * Test getDataFrameDocumentJsonString - When schema is Some(StructType.empty)
    */
   @Test
   def testDataFrameDocumentJsonString_SchemaEmpty(): Unit = {
@@ -127,7 +126,6 @@ class CatalogFormatterTest {
 
     val jsonString = CatalogFormatter.getDataFrameDocumentJsonString(mockDoc, emptySchema)
 
-    assertEquals("[]", jsonString, "当 schema 为空时，应返回一个空的 JSON 数组")
+    assertEquals("[]", jsonString, "Should return an empty JSON array when schema is empty")
   }
-
 }

@@ -42,6 +42,7 @@ class CodecUtilsTest {
     val expectedPassword = "securepassword"
     val encoded = CodecUtils.encodePairWithTypeId(expectedTypeId, expectedUser, expectedPassword)
     val decoded = CodecUtils.decodePairWithTypeId(encoded)
+
     assertEquals(expectedTypeId, decoded._1, "Type ID must match")
     assertEquals(expectedUser, decoded._2, "User must match")
     assertEquals(expectedPassword, decoded._3, "Password must match")
@@ -82,7 +83,7 @@ class CodecUtilsTest {
 
     assertEquals(TOKEN, decoded._1, "Type ID should be TOKEN")
     assertEquals(token.token, decoded._2, "Token should match")
-    assertEquals("", decoded._3, "Password should be empty") // 验证 token 编码时 password 是空字符串
+    assertEquals("", decoded._3, "Password should be empty") // Verify password is empty for token auth
   }
 
   @Test
@@ -101,9 +102,13 @@ class CodecUtilsTest {
   def testEncodeCredentials_Unsupported(): Unit = {
     case class UnsupportedCredentials() extends Credentials
     val unsupported = UnsupportedCredentials()
-    val exception = assertThrows(
-      classOf[IllegalArgumentException], () => CodecUtils.encodeCredentials(unsupported))
-    assertEquals(s"$unsupported not supported", exception.getMessage)
+
+    val exception = assertThrows(classOf[IllegalArgumentException], () => {
+      CodecUtils.encodeCredentials(unsupported)
+      ()
+    }, "Should throw exception for unsupported credentials")
+
+    assertEquals(s"$unsupported not supported", exception.getMessage, "Exception message should match")
   }
 
   @Test
@@ -124,6 +129,7 @@ class CodecUtilsTest {
     val expectedToken = "token_data"
     val encoded = CodecUtils.encodePairWithTypeId(TOKEN, expectedToken, "ignored_pass")
     val decoded = CodecUtils.decodeCredentials(encoded)
+
     assertTrue(decoded.isInstanceOf[TokenAuth], "Decoded credential should be TokenAuth")
     val token = decoded.asInstanceOf[TokenAuth]
     assertEquals(expectedToken, token.token, "Token should match")
@@ -140,9 +146,12 @@ class CodecUtilsTest {
   def testDecodeCredentials_UnsupportedTypeID(): Unit = {
     val UNKNOWN_ID: Byte = 99
     val encoded = CodecUtils.encodePairWithTypeId(UNKNOWN_ID, "u", "p")
-    val exception = assertThrows(
-      classOf[IllegalArgumentException], () => CodecUtils.decodeCredentials(encoded))
-    assertEquals(s"${UNKNOWN_ID} not supported", exception.getMessage)
 
+    val exception = assertThrows(classOf[IllegalArgumentException], () => {
+      CodecUtils.decodeCredentials(encoded)
+      ()
+    }, "Should throw exception for unsupported Type ID")
+
+    assertEquals(s"$UNKNOWN_ID not supported", exception.getMessage, "Exception message should match")
   }
 }

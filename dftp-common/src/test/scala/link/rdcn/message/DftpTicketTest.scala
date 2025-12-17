@@ -22,7 +22,7 @@ class DftpTicketJunitTest {
     val blobId = "blob-uuid-12345"
     val blobTicket = BlobTicket(blobId)
 
-    // 覆盖 BlobTicket 的实例化和 encodeTicket()
+    // Cover BlobTicket instantiation and encodeTicket()
     val encoded = blobTicket.encodeTicket()
 
     val contentBytes = blobId.getBytes(StandardCharsets.UTF_8)
@@ -30,7 +30,7 @@ class DftpTicketJunitTest {
 
     assertEquals(expectedLength, encoded.length, "Encoded array length must match (typeId + length + content)")
 
-    // 验证编码内容：解码回 ByteBuffer 进行检查
+    // Verify encoded content
     val buffer = ByteBuffer.wrap(encoded)
 
     assertEquals(BLOB_TICKET_ID, buffer.get(), "First byte must be the BlobTicket typeId (1)")
@@ -49,7 +49,7 @@ class DftpTicketJunitTest {
 
     val encoded = blobTicket.encodeTicket()
 
-    // 验证长度和内容
+    // Verify length and content
     val buffer = ByteBuffer.wrap(encoded)
     assertEquals(BLOB_TICKET_ID, buffer.get(), "Type ID must be 1")
     assertEquals(0, buffer.getInt(), "Content length must be 0 for empty content")
@@ -62,12 +62,12 @@ class DftpTicketJunitTest {
     val url = "dftp://server/query?op=filter"
     val getTicket = GetTicket(url)
 
-    // 覆盖 GetTicket 的实例化和 encodeTicket()
+    // Cover GetTicket instantiation and encodeTicket()
     val encoded = getTicket.encodeTicket()
 
     val contentBytes = url.getBytes(StandardCharsets.UTF_8)
 
-    // 验证编码内容：解码回 ByteBuffer 进行检查
+    // Verify encoded content
     val buffer = ByteBuffer.wrap(encoded)
 
     assertEquals(GET_TICKET_ID, buffer.get(), "First byte must be the GetTicket typeId (2)")

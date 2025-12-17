@@ -13,6 +13,6 @@ class SharedInterpreterManagerTest {
   @Test
   def getJepTest(): Unit = {
     val jep = SharedInterpreterManager.getInterpreter
-    assertTrue(jep != null, "jep doesn't exit!")
+    assertTrue(jep != null, "Interpreter instance should not be null")
   }
 }

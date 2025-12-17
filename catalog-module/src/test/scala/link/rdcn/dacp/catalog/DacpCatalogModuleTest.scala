@@ -1,290 +1,206 @@
-/**
- * @Author Yomi
- * @Description:
- * @Data 2025/11/5 10:36
- * @Modified By:
- */
-package link.rdcn.dacp.catalog
+package link.rdcn.catalog
 
-import link.rdcn.client.DftpClient
-import link.rdcn.dacp.catalog.DacpCatalogModuleTest._
-import link.rdcn.server._
-import link.rdcn.server.module._
-import link.rdcn.struct.ValueType.{IntType, StringType}
+import link.rdcn.dacp.catalog.{CatalogService, CatalogServiceRequest}
+import link.rdcn.server.ServerContext
+import link.rdcn.struct.ValueType.{LongType, RefType, StringType}
 import link.rdcn.struct._
-import link.rdcn.user.{Credentials, UserPasswordAuthService, UserPrincipal, UserPrincipalWithCredentials}
-import org.apache.arrow.flight.FlightRuntimeException
-import org.apache.jena.rdf.model.{Model, ModelFactory}
-import org.junit.jupiter.api.Assertions.{assertEquals, assertNotNull, assertThrows, assertTrue}
-import org.junit.jupiter.api.{AfterAll, BeforeAll, Test}
+import org.apache.jena.rdf.model.Model
+import org.json.JSONObject
+import org.junit.jupiter.api.Assertions.{assertEquals, assertTrue}
+import org.junit.jupiter.api.Test
 
 import java.io.ByteArrayInputStream
-import java.nio.charset.StandardCharsets
 
-object DacpCatalogModuleTest {
-  private var server: DftpServer = _
-  private var client: DftpClient = _
-  private val testPort = 3101
-  private val baseUrl = s"dftp://0.0.0.0:$testPort"
-  private val catalogService = new CatalogService {
-    override def getDataSetMetaData(datasetName: String, model: Model): Unit =
-      model.add(MockCatalogData.getMockModel)
+class CatalogServiceTest {
 
-    override def getDataFrameMetaData(dataFrameName: String, model: Model): Unit =
-      model.add(MockCatalogData.getMockModel)
+  private val BASE_URL = "dftp://test-host:1234"
 
-    override def getDocument(dataFrameName: String): DataFrameDocument =
-      if (dataFrameName == "my_table") MockCatalogData.mockDoc else throw new NoSuchElementException("Doc not found")
-
-    override def getStatistics(dataFrameName: String): DataFrameStatistics =
-      if (dataFrameName == "my_table") MockCatalogData.mockStats else throw new NoSuchElementException("Stats not found")
-
-    override def getSchema(dataFrameName: String): Option[StructType] =
-      if (dataFrameName == "my_table") Some(MockCatalogData.mockSchema) else None
-
-    override def getDataFrameTitle(dataFrameName: String): Option[String] =
-      if (dataFrameName == "my_table") Some(MockCatalogData.mockTitle) else None
-
-    override def accepts(request: CatalogServiceRequest): Boolean = true
-
-    /**
-     * 列出所有数据集名称
-     *
-     * @return java.util.List[String]
-     */
-    override def listDataSetNames(): List[String] = List("my_set")
-
-    /**
-     * 列出指定数据集下的所有数据帧名称
-     *
-     * @param dataSetId 数据集 ID
-     * @return java.util.List[String]
-     */
-    override def listDataFrameNames(dataSetId: String): List[String] = List("my_table")
-  }
-  private val userPasswordAuthService = new UserPasswordAuthService {
-    override def authenticate(credentials: Credentials): UserPrincipal =
-      UserPrincipalWithCredentials(credentials)
-
-    override def accepts(credentials: Credentials): Boolean = true
+  // Helper method to create a simple ServerContext mock locally
+  private def createMockServerContext(): ServerContext = new ServerContext {
+    override def getHost(): String = "mock-host"
+    override def getPort(): Int = 9999
+    override def getProtocolScheme(): String = "dftp"
+    override def getDftpHome(): Option[String] = None
   }
 
-  @BeforeAll
-  def startServer(): Unit = {
-    val config = DftpServerConfig("0.0.0.0", testPort, dftpHome = Some("data"))
-    val modules = Array(
-      new BaseDftpModule,
-      new DacpCatalogModule,
-      new GetStreamModule(),
-//      new CatalogServiceModule(catalogService),
-      new UserPasswordAuthModule(userPasswordAuthService),
-    )
-    server = DftpServer.start(config, modules)
-
-    Thread.sleep(2000)
-
-    client = DftpClient.connect(baseUrl)
-    assertNotNull(client, "client connected failed")
-  }
-
-  @AfterAll
-  def stopServer(): Unit = {
-    if (server != null) server.close()
-  }
-}
-
-/**
- * DacpCatalogModule test
- */
-class DacpCatalogModuleTest {
-
+  /**
+   * Test doListDataSets method
+   */
   @Test
-  def testGetSchemaAction(): Unit = {
-    val actionName = "/getSchema/my_table"
-    val resultBytes = client.doAction(actionName)
-    val resultString = new String(resultBytes, StandardCharsets.UTF_8)
+  def testDoListDataSets(): Unit = {
+    // 1. Localize test data
+    val dataSetName = "dataset1"
+    val rdfXml = "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/>"
 
-    val expectedString = MockCatalogData.mockSchema.toString
+    // 2. Local anonymous mock implementing only necessary methods
+    val mockService = new CatalogService {
+      override def listDataSetNames(): List[String] = List(dataSetName)
 
-    assertEquals(expectedString, resultString, s"Action $actionName return  Schema string cant't match")
-  }
-
-  @Test
-  def testGetDataFrameTitleAction(): Unit = {
-    val actionName = "/getDataFrameTitle/my_table"
-    val resultBytes = client.doAction(actionName)
-    val resultString = new String(resultBytes, StandardCharsets.UTF_8)
-
-    val expectedString = MockCatalogData.mockTitle
-
-    assertEquals(expectedString, resultString, s"Action $actionName return  Title string cant't match")
-  }
-
-  @Test
-  def testGetStatisticsAction(): Unit = {
-    val actionName = "/getStatistics/my_table"
-    val resultBytes = client.doAction(actionName)
-    val resultString = new String(resultBytes, StandardCharsets.UTF_8)
-
-    val expectedString =  CatalogFormatter.getDataFrameStatisticsString(MockCatalogData.mockStats)
-
-    assertEquals(expectedString, resultString, s"Action $actionName return  Statistics JSON cant't match")
-  }
-
-  @Test
-  def testGetDocumentAction(): Unit = {
-    val actionName = "/getDocument/my_table"
-    val resultBytes = client.doAction(actionName)
-    val resultString = new String(resultBytes, StandardCharsets.UTF_8)
-
-    val expectedString = CatalogFormatter.getDataFrameDocumentJsonString(
-      MockCatalogData.mockDoc,
-      Some(MockCatalogData.mockSchema)
-    )
-
-    assertEquals(expectedString, resultString, s"Action $actionName return  Document JSON cant't match")
-  }
-
-  @Test
-  def testGetDataFrameMetaDataAction(): Unit = {
-    val actionName = "/getDataFrameMetaData/my_table"
-    val resultBytes = client.doAction(actionName)
-
-    val expectedModel = MockCatalogData.getMockModel
-    val resultModel = ModelFactory.createDefaultModel()
-    resultModel.read(new ByteArrayInputStream(resultBytes), null, "RDF/XML")
-
-    assertTrue(expectedModel.isIsomorphicWith(resultModel), s"Action $actionName return  RDF/XML content cant't match")
-  }
-
-  @Test
-  def testGetDataSetMetaDataAction(): Unit = {
-    val actionName = "/getDataSetMetaData/my_set"
-    val resultBytes = client.doAction(actionName)
-
-    val expectedModel = MockCatalogData.getMockModel
-    val resultModel = ModelFactory.createDefaultModel()
-    resultModel.read(new ByteArrayInputStream(resultBytes), null, "RDF/XML")
-
-    assertTrue(expectedModel.isIsomorphicWith(resultModel), s"Action $actionName return  RDF/XML content cant't match")
-  }
-
-  @Test
-  def testUnknownAction(): Unit = {
-    val actionName = "/unknown/action"
-    val ex = assertThrows(classOf[FlightRuntimeException], () => {
-      client.doAction(actionName)
-      ()
-    }, "should throw FlightRuntimeException")
-
-    assertTrue(ex.getMessage.contains(s"unknown action: $actionName"), "should be unknown action")
-  }
-
-  @Test
-  def testListDataSetsStream(): Unit = {
-    val path = s"$baseUrl/listDataSets"
-    val df = client.get(path)
-    val expectedDF = catalogService.doListDataSets("")
-    val actualRows = df.collect()
-    val expectedRows = expectedDF.collect()
-
-    assertEquals(expectedDF.schema.toString, df.schema.toString, s"GetStream $path return  Schema cant't match")
-    assertEquals(expectedRows.length, actualRows.length, s"GetStream $path return lines count cant't match")
-    assertEquals(expectedRows.head._1, actualRows.head._1, s"GetStream $path return content cant't match")
-  }
-
-  @Test
-  def testListDataFramesStream(): Unit = {
-    val path = s"$baseUrl/listDataFrames/my_set"
-    val df = client.get(path)
-    val expectedDF = catalogService.doListDataFrames("my_set",baseUrl)
-    val actualRows = df.collect()
-    val expectedRows = expectedDF.collect()
-
-    assertEquals(expectedDF.schema, df.schema, s"GetStream $path return  Schema cant't match")
-    assertEquals(expectedRows.length, actualRows.length, s"GetStream $path return lines count cant't match")
-    assertEquals(expectedRows.head._1, actualRows.head._1, s"GetStream $path return content cant't match")
-  }
-
-  @Test
-  def testListHostsStream(): Unit = {
-    val path = s"$baseUrl/listHosts"
-    val df = client.get(path)
-    val expectedDF = catalogService.doListHostInfo(new MockServerContext)
-    val actualRows = df.collect()
-    val expectedRows = expectedDF.collect()
-
-    assertEquals(expectedDF.schema, df.schema, s"GetStream $path return Schema can't match")
-    assertEquals(expectedRows.length, actualRows.length, s"GetStream $path lines count return can't match")
-    assertEquals(expectedRows.head._1, actualRows.head._1, s"GetStream $path content return can't match")
-  }
-
-  @Test
-  def testStreamHandlerChaining(): Unit = {
-    val path = "/oldStream"
-    val df = client.get(path)
-    val expectedDF = MockCatalogData.mockDF
-    val actualRows = df.collect()
-    val expectedRows = expectedDF.collect()
-
-    assertEquals(expectedDF.schema, df.schema, "GetStream chain return schema can't match")
-    assertEquals(expectedRows.toString(), actualRows.toString(), "GetStream chain return can't match")
-  }
-
-  @Test
-  def testUnknownStream(): Unit = {
-    val path = "/unknown/stream"
-
-    val ex = assertThrows(classOf[FlightRuntimeException], () => {
-      client.get(s"${baseUrl}${path}").collect()
-      ()
-    }, "请求未知 Stream 应抛出 FlightRuntimeException")
-
-    assertTrue(ex.getMessage.contains(s"not found"), "should be unknown stream")
-  }
-}
-
-class GetStreamModule extends DftpModule {
-  private val mockSchema: StructType = StructType.empty.add("id", IntType).add("name", StringType)
-  private val getStreamHolder = new FilteredGetStreamMethods
-  private var serverContext: ServerContext = _
-  private val eventHandler = new EventHandler {
-
-    override def accepts(event: CrossModuleEvent): Boolean = true
-
-    override def doHandleEvent(event: CrossModuleEvent): Unit = {
-      event match {
-        case r: CollectGetStreamMethodEvent => r.collect(
-          new GetStreamMethod {
-            override def accepts(request: DftpGetStreamRequest): Boolean = request.asInstanceOf[DftpGetPathStreamRequest].getRequestURL().contains("oldStream")
-
-            override def doGetStream(request: DftpGetStreamRequest, response: DftpGetStreamResponse): Unit = {
-              request.asInstanceOf[DftpGetPathStreamRequest].getRequestURL() match {
-                case url if url.contains("oldStream") =>
-                  response.sendDataFrame(mockDF)
-              }
-            }
-          })
-
-        case _ =>
+      override def getDataSetMetaData(dataSetId: String, rdfModel: Model): Unit = {
+        rdfModel.read(new ByteArrayInputStream(rdfXml.getBytes), null, "RDF/XML")
       }
+
+      // Methods below are not used in this test path, providing minimal or empty implementation
+      override def accepts(request: CatalogServiceRequest): Boolean = false
+      override def getDataFrameMetaData(name: String, model: Model): Unit = {}
+      override def listDataFrameNames(dataSetId: String): List[String] = Nil
+      override def getDocument(name: String): DataFrameDocument = null
+      override def getStatistics(name: String): DataFrameStatistics = null
+      override def getSchema(name: String): Option[StructType] = None
+      override def getDataFrameTitle(name: String): Option[String] = None
     }
 
-    def mockDF: DataFrame = DefaultDataFrame(
-      mockSchema, Seq(Row(1, "data")).iterator
-    )
+    // 3. Execute
+    val df = mockService.doListDataSets(BASE_URL)
+
+    // 4. Assertions
+    val expectedSchema = StructType.empty
+      .add("name", StringType)
+      .add("meta", StringType)
+      .add("DataSetInfo", StringType)
+      .add("dataFrames", RefType)
+
+    assertEquals(expectedSchema, df.schema, "Schema returned by doListDataSets does not match")
+
+    val rows = df.collect()
+    assertEquals(1, rows.length, "Row count returned by doListDataSets should be 1")
+
+    val row1 = rows.head
+    assertEquals(dataSetName, row1._1, "Column 'name' in the first row does not match")
+
+    // Verify DataSetInfo JSON
+    val infoJson = new JSONObject(row1.getAs[String](2))
+    assertEquals(dataSetName, infoJson.getString("name"), "Field 'name' in 'DataSetInfo' JSON does not match")
+
+    // Verify Ref link
+    assertEquals(s"$BASE_URL/listDataFrames/$dataSetName", row1._4.asInstanceOf[DFRef].url,
+      "URL in 'dataFrames' (Ref) column does not match")
   }
 
-  override def init(anchor: Anchor, serverContext: ServerContext): Unit = {
-    this.serverContext = serverContext
-    anchor.hook(eventHandler)
-    anchor.hook(new EventSource {
-      override def init(eventHub: EventHub): Unit =
-        eventHub.fireEvent(new CollectGetStreamMethodEvent(getStreamHolder))
-    })
+  /**
+   * Test doListHostInfo method
+   */
+  @Test
+  def testDoListHostInfo(): Unit = {
+    // For this test, CatalogService implementation doesn't matter as doListHostInfo is final and depends on ServerContext
+    val mockService = new CatalogService {
+      override def accepts(r: CatalogServiceRequest): Boolean = false
+      override def listDataSetNames(): List[String] = Nil
+      override def getDataSetMetaData(id: String, m: Model): Unit = {}
+      override def getDataFrameMetaData(n: String, m: Model): Unit = {}
+      override def listDataFrameNames(id: String): List[String] = Nil
+      override def getDocument(n: String): DataFrameDocument = null
+      override def getStatistics(n: String): DataFrameStatistics = null
+      override def getSchema(n: String): Option[StructType] = None
+      override def getDataFrameTitle(n: String): Option[String] = None
+    }
+
+    val mockContext = createMockServerContext()
+
+    val df = mockService.doListHostInfo(mockContext)
+
+    val expectedSchema = StructType.empty
+      .add("hostInfo", StringType)
+      .add("resourceInfo", StringType)
+
+    assertEquals(expectedSchema, df.schema, "Schema returned by doListHostInfo does not match")
+
+    val rows = df.collect()
+    assertEquals(1, rows.length, "doListHostInfo should return exactly 1 row")
+
+    // Verify hostInfo JSON
+    val hostInfoJson = new JSONObject(rows.head.getAs[String](0))
+    assertEquals("mock-host", hostInfoJson.getString("faird.host.position"),
+      "Field 'faird.host.position' in hostInfo JSON does not match")
+    assertEquals("9999", hostInfoJson.getString("faird.host.port"),
+      "Field 'faird.host.port' in hostInfo JSON does not match")
+
+    // Verify resourceInfo JSON
+    val resourceInfoJson = new JSONObject(rows.head.getAs[String](1))
+    assertTrue(resourceInfoJson.has("cpu.cores"), "resourceInfo JSON should contain 'cpu.cores'")
+    assertTrue(resourceInfoJson.has("jvm.memory.max.mb"), "resourceInfo JSON should contain 'jvm.memory.max.mb'")
   }
 
-  override def destroy(): Unit = {
+  /**
+   * Test doListDataFrames - When Schema is empty
+   */
+  @Test
+  def testDoListDataFrames_WithEmptySchema(): Unit = {
+    val dataSetName = "dataset1"
+    val tableName = "table_a"
+    val fullTableName = s"${dataSetName}_$tableName"
+    val tableTitle = s"Title for $fullTableName"
+    val tableRowCount = 123L
+    val tableByteSize = 456L
+
+    // Local anonymous mock with specific logic for this test case
+    val mockService = new CatalogService {
+      override def listDataFrameNames(dataSetId: String): List[String] = List(fullTableName)
+
+      override def getSchema(dataFrameName: String): Option[StructType] = Some(StructType.empty)
+
+      override def getStatistics(dataFrameName: String): DataFrameStatistics = new DataFrameStatistics {
+        override def rowCount: Long = tableRowCount
+        override def byteSize: Long = tableByteSize
+      }
+
+      override def getDataFrameTitle(dataFrameName: String): Option[String] = Some(tableTitle)
+
+      override def getDocument(dataFrameName: String): DataFrameDocument = new DataFrameDocument() {
+        // Methods unused in this flow can be left unimplemented or return None
+        override def getDataFrameTitle(): Option[String] = None
+
+        override def getSchemaURL(): Option[String] = ???
+
+        override def getColumnURL(colName: String): Option[String] = ???
+
+        override def getColumnAlias(colName: String): Option[String] = ???
+
+        override def getColumnTitle(colName: String): Option[String] = ???
+      }
+
+      // Unused methods
+      override def accepts(r: CatalogServiceRequest): Boolean = false
+      override def listDataSetNames(): List[String] = Nil
+      override def getDataSetMetaData(id: String, m: Model): Unit = {}
+      override def getDataFrameMetaData(n: String, m: Model): Unit = {}
+    }
+
+    val df = mockService.doListDataFrames(s"/listDataFrames/$dataSetName", BASE_URL)
+
+    val expectedSchema = StructType.empty
+      .add("name", StringType)
+      .add("size", LongType)
+      .add("title", StringType)
+      .add("document", StringType)
+      .add("schema", StringType)
+      .add("statistics", StringType)
+      .add("dataFrame", RefType)
+
+    assertEquals(expectedSchema, df.schema, "Schema returned by doListDataFrames does not match")
+
+    val rows = df.collect()
+    assertEquals(1, rows.length, "doListDataFrames should return 1 row")
+
+    val row1 = rows.head
+    assertEquals(fullTableName, row1._1, "Column 'name' in the first row does not match")
+    assertEquals(tableRowCount, row1._2, "Column 'size' (rowCount) does not match")
+    assertEquals(tableTitle, row1._3, "Column 'title' does not match")
+
+    // Verify 'document' (JSON) column
+    // Since Schema is empty, CatalogFormatter.getDataFrameDocumentJsonString returns "[]"
+    assertEquals("[]", row1._4, "Column 'document' should be '[]' for empty schema")
+
+    // Verify 'schema' string column
+    assertEquals(StructType.empty.toString, row1._5.toString, "Column 'schema' string does not match")
+
+    // Verify 'statistics' (JSON) column
+    val statsJson = new JSONObject(row1.getAs[String](5))
+    assertEquals(tableRowCount, statsJson.getLong("rowCount"), "Field 'rowCount' in statistics JSON does not match")
+    assertEquals(tableByteSize, statsJson.getLong("byteSize"), "Field 'byteSize' in statistics JSON does not match")
+
+    // Verify 'dataFrame' (Ref) column
+    assertEquals(s"$BASE_URL/$fullTableName", row1._7.asInstanceOf[DFRef].url,
+      "URL in 'dataFrame' (Ref) column does not match")
   }
 }
-

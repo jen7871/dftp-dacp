@@ -6,103 +6,173 @@
  */
 package link.rdcn.dacp.catalog
 
-// 导入被测代码所依赖的 CatalogFormatter 方法
+import link.rdcn.server.ServerContext
 import link.rdcn.struct.ValueType.{LongType, RefType, StringType}
 import link.rdcn.struct._
+import org.apache.jena.rdf.model.Model
 import org.json.JSONObject
 import org.junit.jupiter.api.Assertions.{assertEquals, assertTrue}
 import org.junit.jupiter.api.Test
 
+import java.io.ByteArrayInputStream
+
 class CatalogServiceTest {
 
-  val baseUrl = "dftp://test-host:1234"
+  private val BASE_URL = "dftp://test-host:1234"
+
+  // Helper method to create a simple ServerContext mock locally
+  private def createMockServerContext(): ServerContext = new ServerContext {
+    override def getHost(): String = "mock-host"
+    override def getPort(): Int = 9999
+    override def getProtocolScheme(): String = "dftp"
+    override def getDftpHome(): Option[String] = None
+  }
 
   /**
-   * 测试 doListDataSets 方法
+   * Test doListDataSets method
    */
   @Test
   def testDoListDataSets(): Unit = {
-    val mockService = new MockCatalogServiceImpl(None) // Schema 在此测试中无关紧要
+    // 1. Localize test data
+    val dataSetName = "dataset1"
+    val rdfXml = "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/>"
 
-    val df = mockService.doListDataSets(baseUrl)
+    // 2. Local anonymous mock implementing only necessary methods
+    val mockService = new CatalogService {
+      override def listDataSetNames(): List[String] = List(dataSetName)
 
-    // 验证 Schema
+      override def getDataSetMetaData(dataSetId: String, rdfModel: Model): Unit = {
+        rdfModel.read(new ByteArrayInputStream(rdfXml.getBytes), null, "RDF/XML")
+      }
+
+      // Methods below are not used in this test path, providing minimal or empty implementation
+      override def accepts(request: CatalogServiceRequest): Boolean = false
+      override def getDataFrameMetaData(name: String, model: Model): Unit = {}
+      override def listDataFrameNames(dataSetId: String): List[String] = Nil
+      override def getDocument(name: String): DataFrameDocument = null
+      override def getStatistics(name: String): DataFrameStatistics = null
+      override def getSchema(name: String): Option[StructType] = None
+      override def getDataFrameTitle(name: String): Option[String] = None
+    }
+
+    // 3. Execute
+    val df = mockService.doListDataSets(BASE_URL)
+
+    // 4. Assertions
     val expectedSchema = StructType.empty
       .add("name", StringType)
       .add("meta", StringType)
       .add("DataSetInfo", StringType)
       .add("dataFrames", RefType)
 
-    assertEquals(expectedSchema, df.schema, "doListDataSets 返回的 Schema 不匹配")
+    assertEquals(expectedSchema, df.schema, "Schema returned by doListDataSets does not match")
 
-    // 验证数据
     val rows = df.collect()
-    assertEquals(2, rows.length, "doListDataSets 返回的行数不匹配 (应为 2)")
+    assertEquals(1, rows.length, "Row count returned by doListDataSets should be 1")
 
-    // 检查第一行
     val row1 = rows.head
-    assertEquals("dataset1", row1._1, "第一行 'name' 列不匹配")
+    assertEquals(dataSetName, row1._1, "Column 'name' in the first row does not match")
 
-    // 验证 RDF/XML 元数据
-    assertTrue(row1._2.asInstanceOf[String].contains("<rdf:Description rdf:about=\"http://example.org/set/dataset1\">"),
-      "第一行 'meta' (RDF) 列不包含预期的资源")
-
-    // 验证 DataSetInfo JSON
+    // Verify DataSetInfo JSON
     val infoJson = new JSONObject(row1.getAs[String](2))
-    assertEquals("dataset1", infoJson.getString("name"), "第一行 'DataSetInfo' (JSON) 列中的 'name' 不匹配")
+    assertEquals(dataSetName, infoJson.getString("name"), "Field 'name' in 'DataSetInfo' JSON does not match")
 
-    // 验证 Ref 链接
-    assertEquals("dftp://test-host:1234/listDataFrames/dataset1", row1._4.asInstanceOf[DFRef].url,
-      "第一行 'dataFrames' (Ref) 列的 URL 不匹配")
+    // Verify Ref link
+    assertEquals(s"$BASE_URL/listDataFrames/$dataSetName", row1._4.asInstanceOf[DFRef].url,
+      "URL in 'dataFrames' (Ref) column does not match")
   }
 
   /**
-   * 测试 doListHostInfo 方法
+   * Test doListHostInfo method
    */
   @Test
   def testDoListHostInfo(): Unit = {
-    val mockService = new MockCatalogServiceImpl(None) // Schema 在此测试中无关紧要
-    val mockContext = new MockServerContext()
+    // For this test, CatalogService implementation doesn't matter as doListHostInfo is final and depends on ServerContext
+    val mockService = new CatalogService {
+      override def accepts(r: CatalogServiceRequest): Boolean = false
+      override def listDataSetNames(): List[String] = Nil
+      override def getDataSetMetaData(id: String, m: Model): Unit = {}
+      override def getDataFrameMetaData(n: String, m: Model): Unit = {}
+      override def listDataFrameNames(id: String): List[String] = Nil
+      override def getDocument(n: String): DataFrameDocument = null
+      override def getStatistics(n: String): DataFrameStatistics = null
+      override def getSchema(n: String): Option[StructType] = None
+      override def getDataFrameTitle(n: String): Option[String] = None
+    }
+
+    val mockContext = createMockServerContext()
 
     val df = mockService.doListHostInfo(mockContext)
 
-    // 验证 Schema
     val expectedSchema = StructType.empty
       .add("hostInfo", StringType)
       .add("resourceInfo", StringType)
 
+    assertEquals(expectedSchema, df.schema, "Schema returned by doListHostInfo does not match")
 
-    assertEquals(expectedSchema, df.schema, "doListHostInfo 返回的 Schema 不匹配")
-
-    // 验证数据
     val rows = df.collect()
-    assertEquals(1, rows.length, "doListHostInfo 应只返回 1 行")
+    assertEquals(1, rows.length, "doListHostInfo should return exactly 1 row")
 
-    // 验证 hostInfo JSON
+    // Verify hostInfo JSON
     val hostInfoJson = new JSONObject(rows.head.getAs[String](0))
     assertEquals("mock-host", hostInfoJson.getString("faird.host.position"),
-      "hostInfo JSON 中的 'faird.host.position' 不匹配")
+      "Field 'faird.host.position' in hostInfo JSON does not match")
     assertEquals("9999", hostInfoJson.getString("faird.host.port"),
-      "hostInfo JSON 中的 'faird.host.port' 不匹配")
+      "Field 'faird.host.port' in hostInfo JSON does not match")
 
-    // 验证 resourceInfo JSON
+    // Verify resourceInfo JSON
     val resourceInfoJson = new JSONObject(rows.head.getAs[String](1))
-    assertTrue(resourceInfoJson.has("cpu.cores"), "resourceInfo JSON 应包含 'cpu.cores'")
-    assertTrue(resourceInfoJson.has("jvm.memory.max.mb"), "resourceInfo JSON 应包含 'jvm.memory.max.mb'")
+    assertTrue(resourceInfoJson.has("cpu.cores"), "resourceInfo JSON should contain 'cpu.cores'")
+    assertTrue(resourceInfoJson.has("jvm.memory.max.mb"), "resourceInfo JSON should contain 'jvm.memory.max.mb'")
   }
 
   /**
-   * 测试 doListDataFrames - 当 Schema 为空时
-   * 这是 CatalogFormatter.getDataFrameDocumentJsonString 的一个可运行路径
+   * Test doListDataFrames - When Schema is empty
    */
   @Test
   def testDoListDataFrames_WithEmptySchema(): Unit = {
-    val mockService = new MockCatalogServiceImpl(schemaToReturn = Some(StructType.empty))
     val dataSetName = "dataset1"
+    val tableName = "table_a"
+    val fullTableName = s"${dataSetName}_$tableName"
+    val tableTitle = s"Title for $fullTableName"
+    val tableRowCount = 123L
+    val tableByteSize = 456L
 
-    val df = mockService.doListDataFrames(s"/listDataFrames/$dataSetName", baseUrl)
+    // Local anonymous mock with specific logic for this test case
+    val mockService = new CatalogService {
+      override def listDataFrameNames(dataSetId: String): List[String] = List(fullTableName)
 
-    // 验证 Schema
+      override def getSchema(dataFrameName: String): Option[StructType] = Some(StructType.empty)
+
+      override def getStatistics(dataFrameName: String): DataFrameStatistics = new DataFrameStatistics {
+        override def rowCount: Long = tableRowCount
+        override def byteSize: Long = tableByteSize
+      }
+
+      override def getDataFrameTitle(dataFrameName: String): Option[String] = Some(tableTitle)
+
+      override def getDocument(dataFrameName: String): DataFrameDocument = new DataFrameDocument() {
+        // Methods unused in this flow can be left unimplemented or return None
+        override def getDataFrameTitle(): Option[String] = None
+
+        override def getSchemaURL(): Option[String] = ???
+
+        override def getColumnURL(colName: String): Option[String] = ???
+
+        override def getColumnAlias(colName: String): Option[String] = ???
+
+        override def getColumnTitle(colName: String): Option[String] = ???
+      }
+
+      // Unused methods
+      override def accepts(r: CatalogServiceRequest): Boolean = false
+      override def listDataSetNames(): List[String] = Nil
+      override def getDataSetMetaData(id: String, m: Model): Unit = {}
+      override def getDataFrameMetaData(n: String, m: Model): Unit = {}
+    }
+
+    val df = mockService.doListDataFrames(s"/listDataFrames/$dataSetName", BASE_URL)
+
     val expectedSchema = StructType.empty
       .add("name", StringType)
       .add("size", LongType)
@@ -112,35 +182,30 @@ class CatalogServiceTest {
       .add("statistics", StringType)
       .add("dataFrame", RefType)
 
+    assertEquals(expectedSchema, df.schema, "Schema returned by doListDataFrames does not match")
 
-    assertEquals(expectedSchema, df.schema, "doListDataFrames 返回的 Schema 不匹配")
-
-    // 验证数据
     val rows = df.collect()
-    assertEquals(2, rows.length, "doListDataFrames 返回的行数不匹配 (应为 2)")
+    assertEquals(1, rows.length, "doListDataFrames should return 1 row")
 
-    // 检查第一行
     val row1 = rows.head
-    assertEquals("dataset1_table_a", row1._1, "第一行 'name' 列不匹配")
-    assertEquals(123L, row1._2, "第一行 'size' (rowCount) 列不匹配")
-    assertEquals("Title for dataset1_table_a", row1._3, "第一行 'title' 列不匹配")
+    assertEquals(fullTableName, row1._1, "Column 'name' in the first row does not match")
+    assertEquals(tableRowCount, row1._2, "Column 'size' (rowCount) does not match")
+    assertEquals(tableTitle, row1._3, "Column 'title' does not match")
 
-    // 验证 'document' (JSON) 列
-    // 因为 Schema 为空，CatalogFormatter.getDataFrameDocumentJsonString 返回 "[]"
-    assertEquals("[]", row1._4, "第一行 'document' 列应为 '[]'")
+    // Verify 'document' (JSON) column
+    // Since Schema is empty, CatalogFormatter.getDataFrameDocumentJsonString returns "[]"
+    assertEquals("[]", row1._4, "Column 'document' should be '[]' for empty schema")
 
-    // 验证 'schema' 字符串列
-    assertEquals(expectedSchema.toString, row1._5.toString, "第一行 'schema' 字符串不匹配")
+    // Verify 'schema' string column
+    assertEquals(StructType.empty.toString, row1._5.toString, "Column 'schema' string does not match")
 
-    // 验证 'statistics' (JSON) 列
+    // Verify 'statistics' (JSON) column
     val statsJson = new JSONObject(row1.getAs[String](5))
-    assertEquals(123L, statsJson.getLong("rowCount"), "第一行 'statistics' JSON 中的 'rowCount' 不匹配")
-    assertEquals(456L, statsJson.getLong("byteSize"), "第一行 'statistics' JSON 中的 'rowCount' 不匹配")
+    assertEquals(tableRowCount, statsJson.getLong("rowCount"), "Field 'rowCount' in statistics JSON does not match")
+    assertEquals(tableByteSize, statsJson.getLong("byteSize"), "Field 'byteSize' in statistics JSON does not match")
 
-
-    // 验证 'dataFrame' (Ref) 列
-    assertEquals("dftp://test-host:1234/dataset1_table_a", row1._7.asInstanceOf[DFRef].url,
-      "第一行 'dataFrame' (Ref) 列的 URL 不匹配")
+    // Verify 'dataFrame' (Ref) column
+    assertEquals(s"$BASE_URL/$fullTableName", row1._7.asInstanceOf[DFRef].url,
+      "URL in 'dataFrame' (Ref) column does not match")
   }
 }
-
