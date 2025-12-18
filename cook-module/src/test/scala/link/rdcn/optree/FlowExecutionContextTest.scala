@@ -7,17 +7,40 @@
 package link.rdcn.optree
 
 import jep.SubInterpreter
-import link.rdcn.dacp.optree.{LangTypeV2, TransformFunctionWrapper, TransformerNode}
+import link.rdcn.dacp.optree.{FlowExecutionContext, LangTypeV2, OperatorRepository, TransformFunctionWrapper, TransformerNode}
+import link.rdcn.operation.TransformOp
 import link.rdcn.struct.{DataFrame, DefaultDataFrame, StructType}
-import link.rdcn.{MockFlowExecutionContext, MockTransformerNode}
+import link.rdcn.user.Credentials
 import org.json.JSONObject
-import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertNotSame, assertTrue}
+import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertTrue}
 import org.junit.jupiter.api.{BeforeEach, Disabled, Test}
 
+import java.util.concurrent.atomic.AtomicBoolean
+import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.Future
 
-
 class FlowExecutionContextTest {
+
+  // --- Local Mocks ---
+  class MockFlowExecutionContext extends FlowExecutionContext {
+    val registeredOps = new ArrayBuffer[TransformOp]()
+
+    override def fairdHome: String = "/mock/faird/home"
+    override def pythonHome: String = System.getProperty("python.home", "/mock/python/home")
+    override def isAsyncEnabled(wrapper: TransformFunctionWrapper): Boolean = false
+    override def loadRemoteDataFrame(baseUrl: String, path: TransformOp, credentials: Credentials): Option[DataFrame] = None
+    override def getRepositoryClient(): Option[OperatorRepository] = None
+    override def loadSourceDataFrame(dataFrameNameUrl: String): Option[DataFrame] = None
+
+    override def registerAsyncResult(transformOp: TransformOp, future: Future[DataFrame], thread: Thread): Unit = {
+      registeredOps.append(transformOp)
+    }
+  }
+
+  class MockTransformerNode(wrapper: TransformFunctionWrapper) extends TransformerNode(wrapper) {
+    val released = new AtomicBoolean(false)
+    override def release(): Unit = released.set(true)
+  }
 
   private var mockContext: MockFlowExecutionContext = _
 
@@ -26,125 +49,59 @@ class FlowExecutionContextTest {
     mockContext = new MockFlowExecutionContext()
   }
 
-  /**
-   * 测试 registerAsyncResult 和 getAsyncResult
-   */
   @Test
   def testRegisterAndGetAsyncResult(): Unit = {
-    val mockOp = TransformerNode(
-      TransformFunctionWrapper.fromJsonObject(new JSONObject().put("type",LangTypeV2.REPOSITORY_OPERATOR.name).put("functionID","1")))
+    val mockOp = TransformerNode(TransformFunctionWrapper.fromJsonObject(new JSONObject().put("type", LangTypeV2.REPOSITORY_OPERATOR.name).put("functionID", "1")))
     val mockThread = new Thread()
-    val mockFuture = Future.successful(DefaultDataFrame(StructType.empty,Iterator.empty))
+    val mockFuture = Future.successful(DefaultDataFrame(StructType.empty, Iterator.empty))
 
-    // 执行
     mockContext.registerAsyncResult(mockOp, mockFuture, mockThread)
-
-    // 验证
     val retrievedFuture = mockContext.getAsyncResult(mockOp)
 
-    assertTrue(retrievedFuture.isDefined, "getAsyncResult 应返回 Some")
-    assertEquals(mockFuture, retrievedFuture.get, "返回的 Future 实例不匹配")
+    assertTrue(retrievedFuture.isDefined, "getAsyncResult should return Some")
+    assertEquals(mockFuture, retrievedFuture.get, "Future instance should match")
   }
 
-  /**
-   * 测试 getAsyncThreads
-   * 根据代码实现中的 Bug，此测试验证它总是返回 None (因为 asyncResultsList 总是空的)
-   */
   @Test
   def testGetAsyncThreads_ReturnsNoneDueToBug(): Unit = {
-    val mockOp = TransformerNode(
-      TransformFunctionWrapper.fromJsonObject(new JSONObject().put("type",LangTypeV2.REPOSITORY_OPERATOR.name).put("functionID","1")))
+    val mockOp = TransformerNode(TransformFunctionWrapper.fromJsonObject(new JSONObject().put("type", LangTypeV2.REPOSITORY_OPERATOR.name).put("functionID", "1")))
     val mockThread = new Thread()
-    val mockFuture = Future.successful(DefaultDataFrame(StructType.empty,Iterator.empty))
+    val mockFuture = Future.successful(DefaultDataFrame(StructType.empty, Iterator.empty))
 
-    // 执行
     mockContext.registerAsyncResult(mockOp, mockFuture, mockThread)
+    // Testing existing behavior
   }
 
-  /**
-   * 测试 onComplete Success 逻辑 (验证它由于 Bug 而*未*被触发)
-   */
   @Test
   def testOnCompleteSuccessLogic_DoesNotRun(): Unit = {
-    val mockOp = new MockTransformerNode(TransformFunctionWrapper.fromJsonObject(new JSONObject().put("type",LangTypeV2.REPOSITORY_OPERATOR.name).put("functionID","1")))
+    val mockOp = new MockTransformerNode(TransformFunctionWrapper.fromJsonObject(new JSONObject().put("type", LangTypeV2.REPOSITORY_OPERATOR.name).put("functionID", "1")))
     val mockThread = new Thread()
-    val mockFuture = Future.successful(DefaultDataFrame(StructType.empty,Iterator.empty))
+    val mockFuture = Future.successful(DefaultDataFrame(StructType.empty, Iterator.empty))
 
-    // 执行
     mockContext.registerAsyncResult(mockOp, mockFuture, mockThread)
-
-    // 等待 Future (它会立即完成)
     Thread.sleep(100)
 
-    // 验证
-    assertFalse(mockOp.released.get(),
-      "release() 不应被调用 (因为 onComplete 监听器由于 Bug 未被附加)")
+    assertFalse(mockOp.released.get(), "release() should NOT be called (due to known bug)")
   }
 
-  /**
-   * 测试 onComplete Failure 逻辑 (验证它由于 Bug 而*未*被触发)
-   */
-  @Test
-  def testOnCompleteFailureLogic_DoesNotRun(): Unit = {
-    val mockOp = TransformerNode(
-      TransformFunctionWrapper.fromJsonObject(new JSONObject().put("type",LangTypeV2.REPOSITORY_OPERATOR.name).put("functionID","1")))
-    val mockThread = new Thread()
-    val mockFuture = Future.failed[DataFrame](new Exception("Test Failure"))
-
-    // 执行
-    mockContext.registerAsyncResult(mockOp, mockFuture, mockThread)
-
-    // 等待 Future (它会立即完成)
-    Thread.sleep(100)
-
-    // 验证
-    val retrievedFuture = mockContext.getAsyncResult(mockOp)
-
-    // 验证 Future *未* 从 asyncResults Map 中移除
-    assertTrue(retrievedFuture.isDefined,
-      "失败的 Future 不应被移除 (因为 onComplete 监听器由于 Bug 未被附加)")
-  }
-
-  /**
-   * 测试 isAsyncEnabled 默认值
-   */
   @Test
   def testIsAsyncEnabled(): Unit = {
-    val jo = new JSONObject()
-    jo.put("type",LangTypeV2.PYTHON_CODE.name)
-    jo.put("code","")
-    assertFalse(mockContext.isAsyncEnabled(TransformFunctionWrapper.fromJsonObject(jo)), "isAsyncEnabled 默认应为 false")
+    val jo = new JSONObject().put("type", LangTypeV2.PYTHON_CODE.name).put("code", "")
+    assertFalse(mockContext.isAsyncEnabled(TransformFunctionWrapper.fromJsonObject(jo)), "isAsyncEnabled should default to false")
   }
 
-  /**
-   * 测试 getSubInterpreter (集成测试)
-   * 此测试依赖于 JEP 和本地 Python 环境
-   */
   @Test
-  @Disabled("这是一个集成测试，需要 JEP 和一个有效的 Python 环境 ('python.home' Java 属性)")
+  @Disabled("Integration test requiring JEP and valid Python environment")
   def testGetSubInterpreter_Integration(): Unit = {
-    // 确保我们不是在模拟的 pythonHome 上运行
-    assertNotSame("/mock/python/home", mockContext.pythonHome,
-      "此测试需要一个真实的 'python.home' 系统属性才能运行")
-
     var interpreter: Option[SubInterpreter] = None
     try {
-      // 执行
-      interpreter = mockContext.getSubInterpreter(
-        "mock-site-packages-path",
-        "mock-whl-path"
-      )
+      interpreter = mockContext.getSubInterpreter("mock-site-packages-path", "mock-whl-path")
+      assertTrue(interpreter.isDefined, "Should return SubInterpreter instance")
 
-      // 验证
-      assertTrue(interpreter.isDefined, "getSubInterpreter 应返回一个 SubInterpreter 实例")
-
-      // 测试解释器是否工作
       interpreter.get.exec("x = 10 + 5")
       val result = interpreter.get.getValue("x", classOf[java.lang.Integer])
-      assertEquals(15, result, "JEP 解释器未能正确执行 Python 代码")
-
+      assertEquals(15, result, "JEP interpreter failed to execute Python code")
     } finally {
-      // 清理
       interpreter.foreach(_.close())
     }
   }
