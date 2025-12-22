@@ -449,9 +449,9 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
             val blob = f.collect().head.getAs[Blob](0)
             val file = new File(dfAndInput._2._1)
             writeBlobToFile(blob, file)
-          } else if (f.schema.contains("File") && f.schema.getType("File").get == ValueType.BlobType) {
+          } else if (f.schema.contains("file") && f.schema.getType("file").get == ValueType.BlobType) {
 //            文件夹
-            val fileIndex = f.schema.indexOf("File").get
+            val fileIndex = f.schema.indexOf("file").get
             val dir = Paths.get(dfAndInput._2._1).toFile
             dir.deleteOnExit()
             dir.mkdirs()
