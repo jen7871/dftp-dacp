@@ -4,6 +4,8 @@ import java.io.{File, FileInputStream, InputStream}
 
 trait Blob extends DFValue {
 
+  val uri: String
+
   def offerStream[T](consume: InputStream => T): T
 
   override def value: Any = this
@@ -14,8 +16,11 @@ trait Blob extends DFValue {
 }
 
 object Blob {
-  def fromFile(file: File): Blob = {
+  def fromFile(file: File, resourcePath: String): Blob = {
     new Blob {
+
+      override val uri: String = resourcePath
+
       override def offerStream[T](consume: java.io.InputStream => T): T = {
         var stream: InputStream = null
         try {

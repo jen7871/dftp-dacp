@@ -8,7 +8,7 @@ import link.rdcn.message.DftpTicket
  * @Data 2025/12/25 17:08
  * @Modified By:
  */
-trait DataFrameInfo {
+trait DataFrameHandle {
 
   def getDataFrameMeta: DataFrameMetaData
 

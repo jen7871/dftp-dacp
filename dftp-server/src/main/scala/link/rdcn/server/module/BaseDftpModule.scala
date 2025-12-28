@@ -24,29 +24,20 @@ class BaseDftpModule extends DftpModule with Logging{
       }
     }
 
-    def createDataFrameDescriber(dataFrame: DataFrame): JSONObject = {
-      val ticketId: String = ServedDataFramePool.registry(dataFrame)
-      val responseJsonObject = new JSONObject()
-      responseJsonObject.put("shapeName", DataFrameShape.Tabular.name)
-        .put("schema", dataFrame.schema.toString)
-        .put("ticket", ticketId)
-    }
-
     override def doHandleEvent(event: CrossModuleEvent): Unit = {
       event match {
         case require: CollectActionMethodEvent =>
           require.collect(new ActionMethod {
             override def accepts(request: DftpActionRequest): Boolean = {
               request.getActionName() match {
-                case ActionMethodType.GetTabular.name => true
-                case ActionMethodType.GetBlob.name => true
+                case ActionMethodType.Get.name => true
                 case _ => false
               }
             }
 
             override def doAction(request: DftpActionRequest, response: DftpActionResponse): Unit = {
               request.getActionName() match {
-                case ActionMethodType.GetTabular.name =>
+                case ActionMethodType.Get.name =>
                   val requestJsonObject = request.getRequestParameters()
                   val transformOp: TransformOp = TransformOp.fromJsonObject(requestJsonObject)
                   val dataFrame = transformOp.execute(new ExecutionContext {
@@ -61,8 +52,8 @@ class BaseDftpModule extends DftpModule with Logging{
                       }))
                     }
                   })
-                  val dataFrameContext = new DataFrameContext {
-                    override def getDataFrameMeta: DataFrameMetaData = new DataFrameMetaData {
+                  val dataFrameContext = new DataFrameResource {
+                    override def getDataFrameMetaData: DataFrameMetaData = new DataFrameMetaData {
                       override def getDataFrameShape: DataFrameShape = DataFrameShape.Tabular
 
                       override def getDataFrameSchema: StructType = dataFrame.schema
@@ -71,12 +62,6 @@ class BaseDftpModule extends DftpModule with Logging{
                     override def getDataFrame: DataFrame = dataFrame
                   }
                   response.sendRedirect(dataFrameContext)
-                case ActionMethodType.GetBlob.name =>
-                  val requestJsonObject = request.getRequestParameters()
-                  val url = requestJsonObject.getString("url")
-                  //TODO BlobProvider?
-                  val ticketId = UrlValidator.extractPath(url).stripPrefix("/blob/")
-                  response.sendJsonObject(new JSONObject().put("ticket", ticketId))
               }
             }
 

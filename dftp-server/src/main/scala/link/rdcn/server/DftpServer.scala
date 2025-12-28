@@ -1,6 +1,7 @@
 package link.rdcn.server
 
 import link.rdcn.Logging
+import link.rdcn.client.UrlValidator
 import link.rdcn.message.DftpTicket
 import link.rdcn.server.ServerUtils.convertStructTypeToArrowSchema
 import link.rdcn.server.module.KernelModule
@@ -191,16 +192,18 @@ class DftpServer(config: DftpServerConfig) extends Logging {
 
       val actionResponse = new DftpActionResponse {
 
-        override def sendRedirect(dataFrameContext: DataFrameContext): Unit = {
+        override def sendRedirect(dataFrameResource: DataFrameResource): Unit = {
           val responseJsonObject = new JSONObject()
+          val ticket: DftpTicket = URIReferencePool.registry(dataFrameResource.getDataFrame)
           responseJsonObject.put("shapeName", DataFrameShape.Tabular.name)
-            .put("schema", dataFrameContext.getDataFrameMeta.getDataFrameSchema.toString)
-            .put("ticket", dataFrameContext.getDftpTicket.ticketId)
+            .put("schema", dataFrameResource.getDataFrameMetaData.getDataFrameSchema.toString)
+            .put("ticket", ticket.ticketId)
           sendJsonObject(responseJsonObject)
         }
 
-        override def sendRedirect(blobContext: BlobContext): Unit = {
-          sendJsonObject(new JSONObject().put("ticket", blobContext.getDftpTicket.ticketId))
+        override def sendRedirect(blob: Blob): Unit = {
+          val ticket: DftpTicket = URIReferencePool.registry(blob)
+          sendJsonObject(new JSONObject().put("ticket", ticket.ticketId))
         }
 
         override def sendError(errorCode: Int, message: String): Unit = {
@@ -262,8 +265,8 @@ class DftpServer(config: DftpServerConfig) extends Logging {
 
       val dataBatchLen = 1000
       val ticketId = DftpTicket.getDftpTicket(ticket).ticketId
-      if(ServedDataFramePool.exists(ticketId)){
-        val dataFrame = ServedDataFramePool.getDataFrame(ticketId)
+      if(URIReferencePool.exists(ticketId)){
+        val dataFrame = URIReferencePool.getDataFrame(ticketId)
         if(dataFrame.isEmpty) sendErrorWithFlightStatus(400, s"No DataFrame associated with ticket: $ticketId")
         else {
           try{
@@ -399,13 +402,11 @@ class DftpServer(config: DftpServerConfig) extends Logging {
             case v: Boolean => vec.asInstanceOf[BitVector].setSafe(i, if (v) 1 else 0)
             case v: Array[Byte] => vec.asInstanceOf[VarBinaryVector].setSafe(i, v)
             case null => vec.setNull(i)
-            case v: DFRef =>
+            case v: URIRef =>
               val bytes = v.url.getBytes("UTF-8")
               vec.asInstanceOf[VarCharVector].setSafe(i, bytes)
             case v: Blob =>
-              val baseUrl = s"${config.protocolScheme}://${config.host}:${config.port}/blob/"
-              val ticketId = ServedDataFramePool.registry(v)
-              val bytes =  CodecUtils.encodeString(baseUrl + ticketId)
+              val bytes = s"${config.protocolScheme}://${config.host}:${config.port}/blob/${UrlValidator.extractPath(v.uri)}".getBytes("UTF-8")
               vec.asInstanceOf[VarCharVector].setSafe(i, bytes)
             case _ => throw new UnsupportedOperationException("Type not supported")
           }

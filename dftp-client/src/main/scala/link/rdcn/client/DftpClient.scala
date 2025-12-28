@@ -44,8 +44,8 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
     CodecUtils.decodeString(actionResultIter.next().getBody)
   }
 
-  protected def openDataFrame(transformOp: TransformOp): DataFrameInfo = {
-    val responseJson = new JSONObject(doAction(ActionMethodType.GetTabular.name, transformOp.toJsonString))
+  protected def openDataFrame(transformOp: TransformOp): DataFrameHandle = {
+    val responseJson = new JSONObject(doAction(ActionMethodType.Get.name, transformOp.toJsonString))
     val dataFrameMeta = new DataFrameMetaData {
       override def getDataFrameShape: DataFrameShape =
         DataFrameShape.fromName(responseJson.getString("shapeName"))
@@ -53,37 +53,35 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
       override def getDataFrameSchema: StructType =
         StructType.fromString(responseJson.getString("schema"))
     }
-    new DataFrameInfo {
+    new DataFrameHandle {
       override def getDataFrameMeta: DataFrameMetaData = dataFrameMeta
 
       override def getDataFrameTicket: DftpTicket = DftpTicket(responseJson.getString("ticket"))
     }
   }
 
-  def openDataFrame(url: String): DataFrameInfo = openDataFrame(SourceOp(url))
+  def openDataFrame(url: String): DataFrameHandle = openDataFrame(SourceOp(url))
 
   def getTabular(url: String): DataFrame = get(url)
 
-  def openBlob(url: String): DftpTicket = {
-    val requestJson = new JSONObject().put("url", url)
-    val responseJson = new JSONObject(doAction(ActionMethodType.GetBlob.name, requestJson.toString))
-    DftpTicket(responseJson.getString("ticket"))
-  }
-
   def getBlob(url: String): Blob = {
-    val stream: Iterator[Array[Byte]] = getStream(openBlob(url)).map(v => {
-      assert(v.values.length == 1)
-      v._1 match {
-        case value: Array[Byte] => value
-        case other => throw new Exception(s"Blob parsing failed: expected Array[Byte], but got ${other}")
-      }
-    })
+    val df = RemoteDataFrameProxy(SourceOp(validateUrl(url)), getStream, openDataFrame)
     new Blob {
+      override val uri = url
+
       override def offerStream[T](consume: InputStream => T): T = {
-        val inputStream = new IteratorInputStream(stream)
+        val inputStream = df.mapIterator[InputStream](iter => {
+          val chunkIterator = iter.map(value => {
+            assert(value.values.length == 1)
+            value._1 match {
+              case v: Array[Byte] => v
+              case other => throw new Exception(s"Blob parsing failed: expected Array[Byte], but got ${other}")
+            }
+          })
+          new IteratorInputStream(chunkIterator)
+        })
         consume(inputStream)
       }
-      override def toString: String = url
     }
   }
 
@@ -162,7 +160,7 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
                   (vec.getName, new String(v.get(index)))
                 else {
                   v.getField.getMetadata.get("logicalType") match {
-                    case RefType.name => (vec.getName, DFRef(new String(v.get(index))))
+                    case RefType.name => (vec.getName, URIRef(new String(v.get(index))))
                     case BlobType.name => (vec.getName, getBlob(new String(v.get(index))))
                     case other => throw new Exception(s"Unsupported vector type: ${other}")
                   }
@@ -278,7 +276,7 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
             case v: Boolean => vec.asInstanceOf[BitVector].setSafe(i, if (v) 1 else 0)
             case v: Array[Byte] => vec.asInstanceOf[VarBinaryVector].setSafe(i, v)
             case null => vec.setNull(i)
-            case v: DFRef =>
+            case v: URIRef =>
               val bytes = v.url.getBytes("UTF-8")
               vec.asInstanceOf[VarCharVector].setSafe(i, bytes)
             case v: Blob =>

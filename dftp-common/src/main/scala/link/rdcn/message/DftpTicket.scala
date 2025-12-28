@@ -26,12 +26,8 @@ trait ActionMethodType{
 
 object ActionMethodType {
 
-  case object GetTabular extends ActionMethodType {
-    override def name: String = "GET_TABULAR"
-  }
-
-  case object GetBlob extends ActionMethodType {
-    override def name: String = "GET_BLOB"
+  case object Get extends ActionMethodType {
+    override def name: String = "GET"
   }
 
   private var extraTypes: Map[String, ActionMethodType] = Map.empty
@@ -42,7 +38,7 @@ object ActionMethodType {
 
   def fromString(name: String): ActionMethodType = {
     name match {
-      case GetTabular.name => GetTabular
+      case Get.name => Get
       case other     => extraTypes.getOrElse(name,
         throw new IllegalArgumentException(s"Unknown ActionMethodType: $other"))
     }
