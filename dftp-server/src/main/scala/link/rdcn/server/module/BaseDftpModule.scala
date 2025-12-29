@@ -1,14 +1,12 @@
 package link.rdcn.server.module
 
 import link.rdcn.Logging
-import link.rdcn.client.UrlValidator
 import link.rdcn.message.ActionMethodType
 import link.rdcn.operation.{ExecutionContext, TransformOp}
 import link.rdcn.server._
 import link.rdcn.server.exception.{DataFrameNotFoundException, TicketExpiryException, TicketNotFoundException}
-import link.rdcn.struct.{Blob, DataFrame, DataFrameMetaData, DataFrameShape, StructType}
+import link.rdcn.struct.DataFrame
 import link.rdcn.user.UserPrincipal
-import org.json.JSONObject
 
 class BaseDftpModule extends DftpModule with Logging{
 
@@ -30,14 +28,14 @@ class BaseDftpModule extends DftpModule with Logging{
           require.collect(new ActionMethod {
             override def accepts(request: DftpActionRequest): Boolean = {
               request.getActionName() match {
-                case ActionMethodType.Get.name => true
+                case ActionMethodType.GET => true
                 case _ => false
               }
             }
 
             override def doAction(request: DftpActionRequest, response: DftpActionResponse): Unit = {
               request.getActionName() match {
-                case ActionMethodType.Get.name =>
+                case ActionMethodType.GET =>
                   val requestJsonObject = request.getRequestParameters()
                   val transformOp: TransformOp = TransformOp.fromJsonObject(requestJsonObject)
                   val dataFrame = transformOp.execute(new ExecutionContext {
@@ -52,16 +50,7 @@ class BaseDftpModule extends DftpModule with Logging{
                       }))
                     }
                   })
-                  val dataFrameContext = new DataFrameResource {
-                    override def getDataFrameMetaData: DataFrameMetaData = new DataFrameMetaData {
-                      override def getDataFrameShape: DataFrameShape = DataFrameShape.Tabular
-
-                      override def getDataFrameSchema: StructType = dataFrame.schema
-                    }
-
-                    override def getDataFrame: DataFrame = dataFrame
-                  }
-                  response.sendRedirect(dataFrameContext)
+                  response.sendRedirect(dataFrame)
               }
             }
 

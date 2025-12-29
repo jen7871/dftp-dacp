@@ -100,11 +100,12 @@ trait CatalogService {
   }
 
   /**
-   * 输入链接（实现链接）： dacp://0.0.0.0:3101/listDataFrames/dataSetName
+   * 输入链接（实现链接）： dacp://0.0.0.0:3101/dataset/dataSetName/dataframes
    * 返回链接： dacp://0.0.0.0:3101/dataFrameName
    * */
   final def doListDataFrames(listDataFrameUrl: String, baseUrl: String): DataFrame = {
-    val dataSetName = listDataFrameUrl.stripPrefix("/listDataFrames/")
+    val dataSetName = listDataFrameUrl.stripPrefix("/dataset/")
+      .stripSuffix("/dataframes ")
     val schema = StructType.empty.add("name", StringType)
       .add("size", LongType)
       .add("title", StringType)

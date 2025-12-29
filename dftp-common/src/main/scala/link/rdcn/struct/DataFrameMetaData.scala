@@ -8,8 +8,6 @@ package link.rdcn.struct
  */
 trait DataFrameMetaData {
 
-  def getDataFrameShape: DataFrameShape
-
   def getDataFrameSchema: StructType
 
   def getDataFrameDocument: DataFrameDocument = DataFrameDocument.empty()

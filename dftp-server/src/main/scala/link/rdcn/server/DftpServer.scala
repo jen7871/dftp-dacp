@@ -3,6 +3,7 @@ package link.rdcn.server
 import link.rdcn.Logging
 import link.rdcn.client.UrlValidator
 import link.rdcn.message.DftpTicket
+import link.rdcn.message.DftpTicket.DftpTicket
 import link.rdcn.server.ServerUtils.convertStructTypeToArrowSchema
 import link.rdcn.server.module.KernelModule
 import link.rdcn.struct._
@@ -192,18 +193,18 @@ class DftpServer(config: DftpServerConfig) extends Logging {
 
       val actionResponse = new DftpActionResponse {
 
-        override def sendRedirect(dataFrameResource: DataFrameResource): Unit = {
+        override def sendRedirect(dataframe: DataFrame): Unit = {
           val responseJsonObject = new JSONObject()
-          val ticket: DftpTicket = URIReferencePool.registry(dataFrameResource.getDataFrame)
-          responseJsonObject.put("shapeName", DataFrameShape.Tabular.name)
-            .put("schema", dataFrameResource.getDataFrameMetaData.getDataFrameSchema.toString)
-            .put("ticket", ticket.ticketId)
+          val dftpTicket: DftpTicket = URIReferencePool.registry(dataframe)
+          responseJsonObject
+            .put("schema", dataframe.schema.toString)
+            .put("ticket", dftpTicket)
           sendJsonObject(responseJsonObject)
         }
 
         override def sendRedirect(blob: Blob): Unit = {
-          val ticket: DftpTicket = URIReferencePool.registry(blob)
-          sendJsonObject(new JSONObject().put("ticket", ticket.ticketId))
+          val dftpTicket: DftpTicket = URIReferencePool.registry(blob)
+          sendJsonObject(new JSONObject().put("ticket", dftpTicket))
         }
 
         override def sendError(errorCode: Int, message: String): Unit = {
@@ -264,10 +265,10 @@ class DftpServer(config: DftpServerConfig) extends Logging {
                            listener: FlightProducer.ServerStreamListener): Unit = {
 
       val dataBatchLen = 1000
-      val ticketId = DftpTicket.getDftpTicket(ticket).ticketId
-      if(URIReferencePool.exists(ticketId)){
-        val dataFrame = URIReferencePool.getDataFrame(ticketId)
-        if(dataFrame.isEmpty) sendErrorWithFlightStatus(400, s"No DataFrame associated with ticket: $ticketId")
+      val dftpTicket = DftpTicket.getDftpTicket(ticket)
+      if(URIReferencePool.exists(dftpTicket)){
+        val dataFrame = URIReferencePool.getDataFrame(dftpTicket)
+        if(dataFrame.isEmpty) sendErrorWithFlightStatus(400, s"No DataFrame associated with ticket: $dftpTicket")
         else {
           try{
             sendDataFrame(dataFrame.get)
@@ -278,7 +279,7 @@ class DftpServer(config: DftpServerConfig) extends Logging {
           }
         }
       }else {
-        sendErrorWithFlightStatus(400, s"not found ticket $ticketId")
+        sendErrorWithFlightStatus(400, s"not found ticket $dftpTicket")
       }
       def sendDataFrame(dataFrame: DataFrame): Unit = {
         val schema = convertStructTypeToArrowSchema(dataFrame.schema)

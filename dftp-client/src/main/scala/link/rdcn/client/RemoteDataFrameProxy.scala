@@ -2,6 +2,7 @@ package link.rdcn.client
 
 import link.rdcn.Logging
 import link.rdcn.message.DftpTicket
+import link.rdcn.message.DftpTicket.DftpTicket
 import link.rdcn.operation._
 import link.rdcn.struct.{ClosableIterator, DataFrame, DataFrameHandle, Row, StructType}
 
@@ -17,7 +18,7 @@ case class RemoteDataFrameProxy(operation: TransformOp,
                                 openDataFrame: TransformOp => DataFrameHandle
                                ) extends DataFrame with Logging {
 
-  override lazy val schema: StructType = dataFrameDescriptor.getDataFrameMeta.getDataFrameSchema
+  override lazy val schema: StructType = dataFrameHandle.getDataFrameMeta.getDataFrameSchema
 
   override def filter(f: Row => Boolean): DataFrame = {
     val genericFunctionCall = SingleRowCall(new SerializableFunction[Row, Boolean] {
@@ -49,8 +50,8 @@ case class RemoteDataFrameProxy(operation: TransformOp,
 
   override def mapIterator[T](f: ClosableIterator[Row] => T): T = f(ClosableIterator(stream)())
 
-  private lazy val stream = getStream(dataFrameDescriptor.getDataFrameTicket)
-  private lazy val dataFrameDescriptor = openDataFrame(operation)
+  private lazy val stream = getStream(dataFrameHandle.getDataFrameTicket)
+  private lazy val dataFrameHandle = openDataFrame(operation)
 }
 
 

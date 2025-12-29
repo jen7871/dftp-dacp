@@ -2,6 +2,7 @@ package link.rdcn.client
 
 import link.rdcn.Logging
 import link.rdcn.client.ClientUtils.convertStructTypeToArrowSchema
+import link.rdcn.message.DftpTicket.DftpTicket
 import link.rdcn.message.{ActionMethodType, DftpTicket}
 import link.rdcn.operation._
 import link.rdcn.struct.ValueType.{BlobType, RefType}
@@ -45,18 +46,15 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
   }
 
   protected def openDataFrame(transformOp: TransformOp): DataFrameHandle = {
-    val responseJson = new JSONObject(doAction(ActionMethodType.Get.name, transformOp.toJsonString))
+    val responseJson = new JSONObject(doAction(ActionMethodType.GET, transformOp.toJsonString))
     val dataFrameMeta = new DataFrameMetaData {
-      override def getDataFrameShape: DataFrameShape =
-        DataFrameShape.fromName(responseJson.getString("shapeName"))
-
       override def getDataFrameSchema: StructType =
         StructType.fromString(responseJson.getString("schema"))
     }
     new DataFrameHandle {
       override def getDataFrameMeta: DataFrameMetaData = dataFrameMeta
 
-      override def getDataFrameTicket: DftpTicket = DftpTicket(responseJson.getString("ticket"))
+      override def getDataFrameTicket: DftpTicket = responseJson.getString("ticket")
     }
   }
 
@@ -141,7 +139,7 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
   }
 
   def getStream(ticket: DftpTicket): Iterator[Row] = {
-    val flightStream = flightClient.getStream(ticket.ticket)
+    val flightStream = flightClient.getStream(DftpTicket.getTicket(ticket))
     val vectorSchemaRootReceived = flightStream.getRoot
     val iter: Iterator[Seq[Any]] = new Iterator[Seq[Seq[Any]]] {
       override def hasNext: Boolean = flightStream.next()

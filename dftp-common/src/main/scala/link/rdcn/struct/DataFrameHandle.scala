@@ -1,6 +1,7 @@
 package link.rdcn.struct
 
 import link.rdcn.message.DftpTicket
+import link.rdcn.message.DftpTicket.DftpTicket
 
 /**
  * @Author renhao

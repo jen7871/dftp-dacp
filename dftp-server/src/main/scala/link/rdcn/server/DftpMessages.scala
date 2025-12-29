@@ -39,7 +39,7 @@ trait DftpPlainResponse extends DftpResponse {
 }
 
 trait DftpActionResponse extends DftpResponse {
-  def sendRedirect(dataFrameResource: DataFrameResource)
+  def sendRedirect(dataFrame: DataFrame)
   def sendRedirect(blob: Blob)
   def sendJsonString(json: String)
   def sendJsonObject(json: JSONObject) = sendJsonString(json.toString)

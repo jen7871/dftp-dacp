@@ -1,6 +1,6 @@
 package link.rdcn.server
 
-import link.rdcn.message.DftpTicket
+import link.rdcn.message.DftpTicket.DftpTicket
 import link.rdcn.server.exception.{TicketExpiryException, TicketNotFoundException}
 import link.rdcn.struct.{Blob, DataFrame, DefaultDataFrame, Row, StructType}
 import link.rdcn.util.DataUtils
@@ -23,7 +23,7 @@ object URIReferencePool {
     val dataFrameId = UUID.randomUUID().toString
     dataFrameCache.put(dataFrameId, dataFrame)
     ticketExpiryDateCache.put(dataFrameId, expiryDate)
-    DftpTicket(dataFrameId)
+    dataFrameId
   }
 
   def registry(blob: Blob, expiryDate: Long = -1L): DftpTicket = {
@@ -36,19 +36,19 @@ object URIReferencePool {
     })
     dataFrameCache.put(blobId, dataFrame)
     ticketExpiryDateCache.put(blobId, expiryDate)
-    DftpTicket(blobId)
+    blobId
   }
 
-  def exists(ticketId: String): Boolean = {
-    dataFrameCache.keys.toList.contains(ticketId)
+  def exists(ticket: DftpTicket): Boolean = {
+    dataFrameCache.keys.toList.contains(ticket)
   }
 
-  def getDataFrame(ticketId: String): Option[DataFrame] = {
-    val expiryDate = ticketExpiryDateCache.get(ticketId)
-    if(expiryDate.isEmpty) throw new TicketNotFoundException(ticketId)
+  def getDataFrame(ticket: DftpTicket): Option[DataFrame] = {
+    val expiryDate = ticketExpiryDateCache.get(ticket)
+    if(expiryDate.isEmpty) throw new TicketNotFoundException(ticket)
     else if(expiryDate.get < System.currentTimeMillis() && expiryDate.get != -1L) {
-      throw new TicketExpiryException(ticketId, expiryDate.get)
-    }else dataFrameCache.get(ticketId)
+      throw new TicketExpiryException(ticket, expiryDate.get)
+    }else dataFrameCache.get(ticket)
   }
 
   def cleanUp(): Unit = {
