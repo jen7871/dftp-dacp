@@ -13,15 +13,15 @@ import org.junit.jupiter.api.Test
 
 class ValueTypeTest {
 
-  // --- DFRef 测试 ---
+  // --- URIRef 测试 ---
 
   @Test
   def testDFRef(): Unit = {
     val url = "dftp://example.com/data"
-    val ref = DFRef(url)
+    val ref = URIRef(url)
 
-    assertEquals(url, ref.value, "DFRef.value 应返回 url")
-    assertEquals(RefType, ref.valueType, "DFRef.valueType 应返回 RefType")
+    assertEquals(url, ref.value, "URIRef.value 应返回 url")
+    assertEquals(RefType, ref.valueType, "URIRef.valueType 应返回 RefType")
   }
 
   // --- ValueType object (case objects) 测试 ---

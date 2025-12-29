@@ -40,7 +40,7 @@ class FileDirectoryDataSourceModule extends DftpModule {
         case fileName if (fileName.endsWith(".xlsx") ||
           fileName.endsWith(".xls")) =>
           DataStreamSource.excel(dfFile.getAbsolutePath).dataFrame
-        case _ => DataFrame.fromSeq(Seq(Blob.fromFile(dfFile)))
+        case _ => DataFrame.fromSeq(Seq(Blob.fromFile(dfFile, dataFrameUrl)))
       }
     } else {
       val stream = DataUtils.listFilesWithAttributes(dfFile).toIterator
@@ -51,7 +51,7 @@ class FileDirectoryDataSourceModule extends DftpModule {
               file._2.lastModifiedTime().toMillis,
               file._2.lastAccessTime().toMillis,
               null,
-              DFRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
+              URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
             )
           } else {
             (
@@ -60,8 +60,8 @@ class FileDirectoryDataSourceModule extends DftpModule {
               file._2.creationTime().toMillis,
               file._2.lastModifiedTime().toMillis,
               file._2.lastAccessTime().toMillis,
-              Blob.fromFile(file._1),
-              DFRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
+              Blob.fromFile(file._1, dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName),
+              URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
             )
           }
         }).map(Row.fromTuple(_))

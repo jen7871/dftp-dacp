@@ -52,7 +52,7 @@ class CatalogServiceTest {
     assertEquals("dataset1", infoJson.getString("name"), "第一行 'DataSetInfo' (JSON) 列中的 'name' 不匹配")
 
     // 验证 Ref 链接
-    assertEquals("dftp://test-host:1234/listDataFrames/dataset1", row1._4.asInstanceOf[DFRef].url,
+    assertEquals("dftp://test-host:1234/listDataFrames/dataset1", row1._4.asInstanceOf[URIRef].url,
       "第一行 'dataFrames' (Ref) 列的 URL 不匹配")
   }
 
@@ -139,7 +139,7 @@ class CatalogServiceTest {
 
 
     // 验证 'dataFrame' (Ref) 列
-    assertEquals("dftp://test-host:1234/dataset1_table_a", row1._7.asInstanceOf[DFRef].url,
+    assertEquals("dftp://test-host:1234/dataset1_table_a", row1._7.asInstanceOf[URIRef].url,
       "第一行 'dataFrame' (Ref) 列的 URL 不匹配")
   }
 }

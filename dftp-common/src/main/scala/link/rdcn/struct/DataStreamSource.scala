@@ -93,7 +93,7 @@ object DataStreamSource {
         (file._1.getName, file._2.size(),
           DataUtils.getFileType(file._1), file._2.creationTime().toMillis,
           file._2.lastModifiedTime().toMillis, file._2.lastAccessTime().toMillis,
-          Blob.fromFile(file._1))
+          Blob.fromFile(file._1, file._1.getAbsolutePath))
       }
       .map(Row.fromTuple(_))
     new DataStreamSource {
@@ -121,7 +121,7 @@ object DataStreamSource {
             override def schema: StructType = StructType.blobStreamStructType
 
             override def iterator: ClosableIterator[Row] =
-              ClosableIterator(Seq(Blob.fromFile(dfFile))
+              ClosableIterator(Seq(Blob.fromFile(dfFile, dfFile.getAbsolutePath))
                 .map(value => Row.fromSeq(Seq(value))).toIterator)(() => {})
           }
       }
@@ -134,7 +134,7 @@ object DataStreamSource {
               file._2.lastModifiedTime().toMillis,
               file._2.lastAccessTime().toMillis,
               null,
-              DFRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
+              URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
             )
           } else {
             (
@@ -143,8 +143,8 @@ object DataStreamSource {
               file._2.creationTime().toMillis,
               file._2.lastModifiedTime().toMillis,
               file._2.lastAccessTime().toMillis,
-              Blob.fromFile(file._1),
-              DFRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
+              Blob.fromFile(file._1, dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName),
+              URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
             )
           }
         }).map(Row.fromTuple(_))

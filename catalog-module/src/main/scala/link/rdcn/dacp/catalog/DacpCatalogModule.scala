@@ -53,50 +53,50 @@ class DacpCatalogModule extends DftpModule with Logging {
 
             override def doAction(request: DftpActionRequest, response: DftpActionResponse): Unit = {
               val actionName = request.getActionName()
-              val parameter = request.getParameterAsMap()
+              val parameter = request.getRequestParameters()
               catalogServiceHolder.work[Unit](new TaskRunner[CatalogService, Unit] {
                 override def acceptedBy(worker: CatalogService): Boolean =
                   worker.accepts(new CatalogServiceRequest {
-                    override def getDataSetId: String = parameter.get("dataSetName").map(_.toString).orNull
+                    override def getDataSetId: String = parameter.optString("dataSetName", null)
 
-                    override def getDataFrameUrl: String = parameter.get("dataFrameName").map(_.toString).orNull
+                    override def getDataFrameUrl: String = parameter.optString("dataFrameName", null)
                   })
 
                 override def executeWith(worker: CatalogService): Unit = {
                   actionName match {
                     case "getDataSetMetaData" =>
                       val model: Model = ModelFactory.createDefaultModel
-                      worker.getDataSetMetaData(parameter("dataSetName").toString, model)
+                      worker.getDataSetMetaData(parameter.get("dataSetName").toString, model)
                       val writer = new StringWriter();
                       model.write(writer, "RDF/XML");
-                      response.sendData(writer.toString.getBytes("UTF-8"))
+                      response.sendJsonString(writer.toString)
                     case "getDataFrameMetaData" =>
                       val model: Model = ModelFactory.createDefaultModel
-                      worker.getDataFrameMetaData(parameter("dataFrameName").toString, model)
+                      worker.getDataFrameMetaData(parameter.get("dataFrameName").toString, model)
                       val writer = new StringWriter();
                       model.write(writer, "RDF/XML");
-                      response.sendData(writer.toString.getBytes("UTF-8"))
+                      response.sendJsonString(writer.toString)
                     case "getDocument" =>
-                      val dataFrameName = parameter("dataFrameName").toString
+                      val dataFrameName = parameter.get("dataFrameName").toString
                       val document = worker.getDocument(dataFrameName)
                       val schema = worker.getSchema(dataFrameName)
-                      response.sendData(getDataFrameDocumentJsonString(document, schema).getBytes("UTF-8"))
+                      response.sendJsonString(getDataFrameDocumentJsonString(document, schema))
                     case "getDataFrameInfo" =>
-                      val dataFrameName = parameter("dataFrameName").toString
+                      val dataFrameName = parameter.get("dataFrameName").toString
                       val dataFrameTitle = worker.getDataFrameTitle(dataFrameName).getOrElse(dataFrameName)
                       val statistics = worker.getStatistics(dataFrameName)
                       val jo = new JSONObject()
                       jo.put("byteSize", statistics.byteSize)
                       jo.put("rowCount", statistics.rowCount)
                       jo.put("title", dataFrameTitle)
-                      response.sendData(jo.toString().getBytes("UTF-8"))
+                      response.sendJsonString(jo.toString())
                     case "getSchema" =>
-                      val dataFrameName = parameter("dataFrameName").toString
-                      response.sendData(worker.getSchema(dataFrameName)
+                      val dataFrameName = parameter.get("dataFrameName").toString
+                      response.sendJsonString(worker.getSchema(dataFrameName)
                         .getOrElse(StructType.empty)
-                        .toString.getBytes("UTF-8"))
-                    case "getHostInfo" => response.sendData(getHostInfoString(serverContext).getBytes("UTF-8"))
-                    case "getServerInfo" => response.sendData(getHostResourceString().getBytes("UTF-8"))
+                        .toString)
+                    case "getHostInfo" => response.sendJsonString(getHostInfoString(serverContext))
+                    case "getServerInfo" => response.sendJsonString(getHostResourceString())
                   }
                 }
                 override def handleFailure(): Unit =
@@ -111,7 +111,7 @@ class DacpCatalogModule extends DftpModule with Logging {
                 override def accepts(dataFrameUrl: String): Boolean =
                   UrlValidator.extractPath(dataFrameUrl) match {
                     case "/listDataSets" => true
-                    case path if path.startsWith("/listDataFrames") => true
+                    case path if path.startsWith("/dataset") => true
                     case _ => false
                   }
 
@@ -124,7 +124,7 @@ class DacpCatalogModule extends DftpModule with Logging {
                     override def executeWith(worker: CatalogService): DataFrame = {
                       UrlValidator.extractPath(dataFrameUrl) match {
                         case "/listDataSets" => worker.doListDataSets(serverContext.baseUrl)
-                        case path if path.startsWith("/listDataFrames") =>
+                        case path if path.startsWith("/dataset") =>
                            worker.doListDataFrames(path, serverContext.baseUrl)
                       }
                     }

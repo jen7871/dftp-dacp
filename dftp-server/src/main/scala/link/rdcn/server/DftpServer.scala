@@ -1,8 +1,10 @@
 package link.rdcn.server
 
 import link.rdcn.Logging
+import link.rdcn.client.UrlValidator
+import link.rdcn.message.DftpTicket
+import link.rdcn.message.DftpTicket.DftpTicket
 import link.rdcn.server.ServerUtils.convertStructTypeToArrowSchema
-import link.rdcn.server.exception.UnknownGetStreamRequestException
 import link.rdcn.server.module.KernelModule
 import link.rdcn.struct._
 import link.rdcn.user.UserPrincipal
@@ -10,8 +12,10 @@ import link.rdcn.util.{CodecUtils, DataUtils}
 import org.apache.arrow.flight._
 import org.apache.arrow.flight.auth.ServerAuthHandler
 import org.apache.arrow.memory.{ArrowBuf, BufferAllocator, RootAllocator}
+import org.apache.arrow.vector.ipc.message.ArrowRecordBatch
 import org.apache.arrow.vector.types.pojo.Schema
-import org.apache.arrow.vector.{VectorLoader, VectorSchemaRoot}
+import org.apache.arrow.vector.{BigIntVector, BitVector, Float4Vector, Float8Vector, IntVector, VarBinaryVector, VarCharVector, VectorLoader, VectorSchemaRoot, VectorUnloader}
+import org.json.JSONObject
 import org.springframework.beans.factory.xml.XmlBeanDefinitionReader
 import org.springframework.context.support.GenericApplicationContext
 import org.springframework.core.io.FileUrlResource
@@ -188,20 +192,38 @@ class DftpServer(config: DftpServerConfig) extends Logging {
                           listener: FlightProducer.StreamListener[Result]): Unit = {
 
       val actionResponse = new DftpActionResponse {
+
+        override def sendRedirect(dataframe: DataFrame): Unit = {
+          val responseJsonObject = new JSONObject()
+          val dftpTicket: DftpTicket = URIReferencePool.registry(dataframe)
+          responseJsonObject
+            .put("schema", dataframe.schema.toString)
+            .put("ticket", dftpTicket)
+          sendJsonObject(responseJsonObject)
+        }
+
+        override def sendRedirect(blob: Blob): Unit = {
+          val dftpTicket: DftpTicket = URIReferencePool.registry(blob)
+          sendJsonObject(new JSONObject().put("ticket", dftpTicket))
+        }
+
         override def sendError(errorCode: Int, message: String): Unit = {
           sendErrorWithFlightStatus(errorCode, message)
         }
 
-        override def sendData(data: Array[Byte]): Unit = {
-          listener.onNext(new Result(data))
+        override def sendJsonString(json: String): Unit = {
+          listener.onNext(new Result(CodecUtils.encodeString(json)))
           listener.onCompleted()
         }
       }
 
       val actionRequest = new DftpActionRequest {
+
         override def getActionName(): String = action.getType
 
-        override def getParameter(): Array[Byte] = action.getBody
+        override def getRequestParameters(): JSONObject = {
+          new JSONObject(CodecUtils.decodeString(action.getBody))
+        }
 
         override def getUserPrincipal(): UserPrincipal =
           authenticatedUserMap.get(callContext.peerIdentity())
@@ -243,57 +265,54 @@ class DftpServer(config: DftpServerConfig) extends Logging {
                            listener: FlightProducer.ServerStreamListener): Unit = {
 
       val dataBatchLen = 1000
-      val response = new DftpGetStreamResponse {
-        override def sendError(code: Int, message: String): Unit = {
-          sendErrorWithFlightStatus(code, message)
+      val dftpTicket = DftpTicket.getDftpTicket(ticket)
+      if(URIReferencePool.exists(dftpTicket)){
+        val dataFrame = URIReferencePool.getDataFrame(dftpTicket)
+        if(dataFrame.isEmpty) sendErrorWithFlightStatus(400, s"No DataFrame associated with ticket: $dftpTicket")
+        else {
+          try{
+            sendDataFrame(dataFrame.get)
+          }catch {
+            case e: Exception =>
+              logger.error(e)
+              sendErrorWithFlightStatus(500, e.getMessage)
+          }
         }
-
-        override def sendDataFrame(dataFrame: DataFrame): Unit = {
-          val schema = convertStructTypeToArrowSchema(dataFrame.schema)
-          val childAllocator = allocator.newChildAllocator("flight-session", 0, Long.MaxValue)
-          val root = VectorSchemaRoot.create(schema, childAllocator)
-          val loader = new VectorLoader(root)
-          listener.start(root)
-          dataFrame.mapIterator(iter => {
-            val arrowFlightStreamWriter = ArrowFlightStreamWriter(iter)
-            try {
-              arrowFlightStreamWriter.process(root, dataBatchLen).foreach(batch => {
-                try {
-                  loader.load(batch)
-                  while (!listener.isReady()) {
-                    LockSupport.parkNanos(1)
-                  }
-                  listener.putNext()
-                } finally {
-                  batch.close()
+      }else {
+        sendErrorWithFlightStatus(400, s"not found ticket $dftpTicket")
+      }
+      def sendDataFrame(dataFrame: DataFrame): Unit = {
+        val schema = convertStructTypeToArrowSchema(dataFrame.schema)
+        val childAllocator = allocator.newChildAllocator("flight-session", 0, Long.MaxValue)
+        val root = VectorSchemaRoot.create(schema, childAllocator)
+        val loader = new VectorLoader(root)
+        listener.start(root)
+        dataFrame.mapIterator(iter => {
+          val arrowFlightStreamWriter = ArrowFlightStreamWriter(iter)
+          try {
+            arrowFlightStreamWriter.process(root, dataBatchLen).foreach(batch => {
+              try {
+                loader.load(batch)
+                while (!listener.isReady()) {
+                  LockSupport.parkNanos(1)
                 }
-              })
-              listener.completed()
-            } catch {
-              case e: Throwable => listener.error(e)
-                e.printStackTrace()
-                throw e
-            } finally {
-              iter.close()
-              if (root != null) root.close()
-              if (childAllocator != null) childAllocator.close()
-            }
-          })
-        }
+                listener.putNext()
+              } finally {
+                batch.close()
+              }
+            })
+            listener.completed()
+          } catch {
+            case e: Throwable => listener.error(e)
+              e.printStackTrace()
+              throw e
+          } finally {
+            iter.close()
+            if (root != null) root.close()
+            if (childAllocator != null) childAllocator.close()
+          }
+        })
       }
-
-      val authenticatedUser = authenticatedUserMap.get(callContext.peerIdentity())
-      val request: DftpGetStreamRequest = {
-        try{
-          kernelModule.parseGetStreamRequest(ticket.getBytes, authenticatedUser)
-        }catch {
-          case e:UnknownGetStreamRequestException =>
-            response.sendError(404, e.getMessage)
-            throw e
-        }
-      }
-
-      kernelModule.getStream(request, response)
     }
 
     override def acceptPut(
@@ -355,6 +374,50 @@ class DftpServer(config: DftpServerConfig) extends Logging {
                              criteria: Criteria,
                              listener: FlightProducer.StreamListener[FlightInfo]): Unit = {
       listener.onCompleted()
+    }
+  }
+
+  private case class ArrowFlightStreamWriter(stream: Iterator[Row]) {
+
+    def process(root: VectorSchemaRoot, batchSize: Int): Iterator[ArrowRecordBatch] = {
+      stream.grouped(batchSize).map(rows => createDummyBatch(root, rows))
+    }
+
+    private def createDummyBatch(arrowRoot: VectorSchemaRoot, rows: Seq[Row]): ArrowRecordBatch = {
+      arrowRoot.allocateNew()
+      val fieldVectors = arrowRoot.getFieldVectors.asScala
+      var i = 0
+      rows.foreach(row => {
+        var j = 0
+        fieldVectors.foreach(vec => {
+          val value = row.get(j)
+          value match {
+            case v: Int => vec.asInstanceOf[IntVector].setSafe(i, v)
+            case v: Long => vec.asInstanceOf[BigIntVector].setSafe(i, v)
+            case v: Double => vec.asInstanceOf[Float8Vector].setSafe(i, v)
+            case v: Float => vec.asInstanceOf[Float4Vector].setSafe(i, v)
+            case v: java.math.BigDecimal => vec.asInstanceOf[VarCharVector].setSafe(i, v.toString.getBytes("UTF-8"))
+            case v: String =>
+              val bytes = v.getBytes("UTF-8")
+              vec.asInstanceOf[VarCharVector].setSafe(i, bytes)
+            case v: Boolean => vec.asInstanceOf[BitVector].setSafe(i, if (v) 1 else 0)
+            case v: Array[Byte] => vec.asInstanceOf[VarBinaryVector].setSafe(i, v)
+            case null => vec.setNull(i)
+            case v: URIRef =>
+              val bytes = v.url.getBytes("UTF-8")
+              vec.asInstanceOf[VarCharVector].setSafe(i, bytes)
+            case v: Blob =>
+              val bytes = s"${config.protocolScheme}://${config.host}:${config.port}/blob/${UrlValidator.extractPath(v.uri)}".getBytes("UTF-8")
+              vec.asInstanceOf[VarCharVector].setSafe(i, bytes)
+            case _ => throw new UnsupportedOperationException("Type not supported")
+          }
+          j += 1
+        })
+        i += 1
+      })
+      arrowRoot.setRowCount(rows.length)
+      val unloader = new VectorUnloader(arrowRoot)
+      unloader.getRecordBatch
     }
   }
 }

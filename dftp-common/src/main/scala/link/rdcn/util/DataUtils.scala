@@ -2,7 +2,7 @@ package link.rdcn.util
 
 import link.rdcn.Logging
 import link.rdcn.struct.ValueType.{BinaryType, BlobType, BooleanType, DoubleType, FloatType, IntType, LongType, NullType, RefType, StringType}
-import link.rdcn.struct.{Blob, ClosableIterator, Column, DFRef, DefaultDataFrame, Row, StructType, ValueType}
+import link.rdcn.struct.{Blob, ClosableIterator, Column, URIRef, DefaultDataFrame, Row, StructType, ValueType}
 import org.apache.poi.hssf.usermodel.HSSFWorkbook
 import org.apache.poi.ss.usermodel.{Cell, CellType, DateUtil}
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
@@ -190,7 +190,7 @@ object DataUtils extends Logging{
     case _: Array[Byte] => BinaryType
     case _: java.io.File => BinaryType
     case _: Blob => BlobType
-    case _: DFRef => RefType
+    case _: URIRef => RefType
     case _ => StringType
   }
 

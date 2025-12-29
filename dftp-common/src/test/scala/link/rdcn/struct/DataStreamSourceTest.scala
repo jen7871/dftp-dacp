@@ -21,7 +21,7 @@ class DataStreamSourceTest extends CommonTestProvider {
 
   @Test
   def testCsvWithHeader(): Unit = {
-    val csvDataFrameInfo: DataFrameInfo = dataProvider.getDataFrameInfo("/csv/data_1.csv").getOrElse(null)
+    val csvDataFrameInfo: DataFrameHandle = dataProvider.getDataFrameInfo("/csv/data_1.csv").getOrElse(null)
     val mockFile = new File(csvDataFrameInfo.path)
     val csvSource = Source.fromFile(Paths.get(csvDir, "data_1.csv").toString)
     val expectedOutput = csvSource.getLines().toSeq.tail.toList.head
@@ -41,7 +41,7 @@ class DataStreamSourceTest extends CommonTestProvider {
 
   @Test
   def testCsvWithoutHeader(): Unit = {
-    val csvDataFrameInfo: DataFrameInfo = dataProvider.getDataFrameInfo("/csv/data_1.csv").getOrElse(null)
+    val csvDataFrameInfo: DataFrameHandle = dataProvider.getDataFrameInfo("/csv/data_1.csv").getOrElse(null)
     val mockFile = new File(csvDataFrameInfo.path)
     val csvSource = Source.fromFile(Paths.get(csvDir, "data_1.csv").toString)
     val expectedOutput = csvSource.getLines().toSeq.toList.head
@@ -61,7 +61,7 @@ class DataStreamSourceTest extends CommonTestProvider {
 
   @Test
   def testExcel(): Unit = {
-    val excelDataFrameInfo: DataFrameInfo = dataProvider.getDataFrameInfo("/excel/data_1.xlsx").getOrElse(null)
+    val excelDataFrameInfo: DataFrameHandle = dataProvider.getDataFrameInfo("/excel/data_1.xlsx").getOrElse(null)
     val file = new File(excelDataFrameInfo.path)
     val excelPath = file.getPath
 
@@ -79,7 +79,7 @@ class DataStreamSourceTest extends CommonTestProvider {
 
   @Test
   def testFilePathNonRecursive(): Unit = {
-    val fileDataFrameInfo: DataFrameInfo = dataProvider.getDataFrameInfo("/bin").getOrElse(null)
+    val fileDataFrameInfo: DataFrameHandle = dataProvider.getDataFrameInfo("/bin").getOrElse(null)
     val mockDir = new File(fileDataFrameInfo.path)
 
     // 覆盖 filePath(dir, false)
