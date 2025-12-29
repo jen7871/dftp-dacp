@@ -65,7 +65,7 @@ case class StructType(val columns: Seq[Column]) {
 //  override def toString: String =
 //    columns.map(c => s"${c.name}: ${c.colType}").mkString("schema(", ", ", ")")
 
-  override def toString: String = {
+  def toJson(): JSONObject = {
     val jsonArray = new JSONArray()
     columns.foreach { col =>
       val jo = new JSONObject()
@@ -74,8 +74,10 @@ case class StructType(val columns: Seq[Column]) {
       jo.put("nullable", col.nullable)
       jsonArray.put(jo)
     }
-    jsonArray.toString
+    new JSONObject().put("schema", jsonArray)
   }
+
+  override def toString: String = toJson().toString
 }
 
 object StructType {
@@ -96,7 +98,7 @@ object StructType {
       return StructType.empty
     }
 
-    val jsonArray = new JSONArray(jsonString)
+    val jsonArray = new JSONObject(jsonString).getJSONArray("schema")
     val columns = (0 until jsonArray.length()).map { i =>
       val jo = jsonArray.getJSONObject(i)
       val name = jo.getString("name")

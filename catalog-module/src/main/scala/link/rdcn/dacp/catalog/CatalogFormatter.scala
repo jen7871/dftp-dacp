@@ -18,10 +18,11 @@ import java.lang.management.ManagementFactory
  */
 object CatalogFormatter {
 
-  def getDataFrameDocumentJsonString(document: DataFrameDocument,
-                                             schema: Option[StructType]): String = {
+  def getDataFrameDocumentJsonObject(document: DataFrameDocument,
+                                     schema: Option[StructType]): JSONObject = {
+    val ja = new JSONArray()
     schema match {
-      case None => new JSONArray().toString()
+      case None => new JSONObject().put("document", ja)
       case Some(dfSchema) =>
         val newSchema = StructType.empty
           .add("SchemaUrl",StringType)
@@ -34,9 +35,8 @@ object CatalogFormatter {
             document.getColumnAlias(name).getOrElse(""),
             document.getColumnTitle(name).getOrElse("")))
           .map(seq => link.rdcn.struct.Row.fromSeq(seq))
-        val ja = new JSONArray()
         stream.map(_.toJsonObject(dfSchema)).foreach(ja.put(_))
-        ja.toString()
+        new JSONObject().put("document", ja)
     }
 
   }
@@ -48,13 +48,7 @@ object CatalogFormatter {
     jo.toString()
   }
 
-  def getHostResourceString(): String = {
-    val jo = new JSONObject()
-    getResourceStatusString.foreach(kv => jo.put(kv._1, kv._2))
-    jo.toString()
-  }
-
-  def getResourceStatusString(): Map[String, String] = {
+  def getSystemInfo(): JSONObject = {
     val osBean = ManagementFactory.getOperatingSystemMXBean
       .asInstanceOf[OperatingSystemMXBean]
     val runtime = Runtime.getRuntime
@@ -70,27 +64,28 @@ object CatalogFormatter {
     val systemMemoryTotal = osBean.getTotalPhysicalMemorySize / 1024 / 1024 // MB
     val systemMemoryFree = osBean.getFreePhysicalMemorySize / 1024 / 1024 // MB
     val systemMemoryUsed = systemMemoryTotal - systemMemoryFree
-    Map(
-      "net.mac.address" -> s"${ServerUtils.getFirstNonLoopBackMacAddress}",
-      "cpu.cores" -> s"$availableProcessors",
-      "cpu.usage.percent" -> s"$cpuLoadPercent%",
-      "jvm.memory.max.mb" -> s"$maxMemory MB",
-      "jvm.memory.total.mb" -> s"$totalMemory MB",
-      "jvm.memory.used.mb" -> s"$usedMemory MB",
-      "jvm.memory.free.mb" -> s"$freeMemory MB",
-      "system.memory.total.mb" -> s"$systemMemoryTotal MB",
-      "system.memory.used.mb" -> s"$systemMemoryUsed MB",
-      "system.memory.free.mb" -> s"$systemMemoryFree MB"
-    )
+    val json = new JSONObject()
+    json.put("net.mac.address", ServerUtils.getFirstNonLoopBackMacAddress)
+    json.put("cpu.cores", availableProcessors)
+    json.put("cpu.usage.percent", s"$cpuLoadPercent%")
+    json.put("jvm.memory.max.mb", s"$maxMemory MB")
+    json.put("jvm.memory.total.mb", s"$totalMemory MB")
+    json.put("jvm.memory.used.mb", s"$usedMemory MB")
+    json.put("jvm.memory.free.mb", s"$freeMemory MB")
+    json.put("system.memory.total.mb", s"$systemMemoryTotal MB")
+    json.put("system.memory.used.mb", s"$systemMemoryUsed MB")
+    json.put("system.memory.free.mb", s"$systemMemoryFree MB")
+
+    json
   }
 
-  def getHostInfoString(serverContext: ServerContext): String = {
+  def getHostInfo(serverContext: ServerContext): JSONObject = {
     val hostInfo = Map(
       s"$FAIRD_HOST_POSITION" -> s"${serverContext.getHost()}",
       s"$FAIRD_HOST_PORT" -> s"${serverContext.getPort()}"
     )
     val jo = new JSONObject()
     hostInfo.foreach(kv => jo.put(kv._1, kv._2))
-    jo.toString()
+    jo
   }
 }
