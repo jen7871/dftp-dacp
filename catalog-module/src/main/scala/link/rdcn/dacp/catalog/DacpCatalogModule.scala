@@ -1,6 +1,6 @@
 package link.rdcn.dacp.catalog
 
-import CatalogFormatter.{getDataFrameDocumentJsonObject, getHostInfo, getSystemInfo}
+import CatalogFormatter.{getHostInfo, getSystemInfo}
 import link.rdcn.Logging
 import link.rdcn.client.UrlValidator
 import link.rdcn.server._
@@ -44,7 +44,7 @@ class DacpCatalogModule extends DftpModule with Logging {
 
             override def doAction(request: DftpActionRequest, response: DftpActionResponse): Unit = {
               val actionName = request.getActionName()
-              val parameter = request.getRequestParameters()
+              val parameter = request.requestParameters
               catalogServiceHolder.work[Unit](new TaskRunner[CatalogService, Unit] {
                 override def acceptedBy(worker: CatalogService): Boolean =
                   worker.accepts(new CatalogServiceRequest {
@@ -59,26 +59,24 @@ class DacpCatalogModule extends DftpModule with Logging {
                       val model: Model = ModelFactory.createDefaultModel
                       worker.getDataSetMetaData(parameter.get("dataSetName").toString, model)
                       val writer = new StringWriter();
-                      model.write(writer, "RDF/XML");
-                      response.sendJsonObject(new JSONObject().put("content", writer.toString))
+                      model.write(writer, "JSON-LD");
+                      response.sendJsonString(writer.toString)
                     case CatalogActionType.GetDataFrameMetaData =>
                       val model: Model = ModelFactory.createDefaultModel
                       worker.getDataFrameMetaData(parameter.get("dataFrameName").toString, model)
                       val writer = new StringWriter();
-                      model.write(writer, "RDF/XML");
-                      response.sendJsonObject(new JSONObject().put("content", writer.toString))
+                      model.write(writer, "JSON-LD");
+                      response.sendJsonString(writer.toString)
                     case CatalogActionType.GetDocument =>
                       val dataFrameName = parameter.get("dataFrameName").toString
                       val document = worker.getDocument(dataFrameName)
                       val schema = worker.getSchema(dataFrameName)
-                      response.sendJsonObject(getDataFrameDocumentJsonObject(document, schema))
+                      response.sendJsonObject(document.toJson(schema.get))
                     case CatalogActionType.GetDataFrameInfo =>
                       val dataFrameName = parameter.get("dataFrameName").toString
                       val dataFrameTitle = worker.getDataFrameTitle(dataFrameName).getOrElse(dataFrameName)
                       val statistics = worker.getStatistics(dataFrameName)
-                      val jo = new JSONObject()
-                      jo.put("byteSize", statistics.byteSize)
-                      jo.put("rowCount", statistics.rowCount)
+                      val jo = statistics.toJson()
                       jo.put("title", dataFrameTitle)
                       response.sendJsonObject(jo)
                     case CatalogActionType.GetSchema =>

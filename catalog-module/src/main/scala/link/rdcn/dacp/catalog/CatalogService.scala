@@ -119,9 +119,9 @@ trait CatalogService {
         (dfName,
           getStatistics(dfName).rowCount,
           getDataFrameTitle(dfName).getOrElse(null),
-          getDataFrameDocumentJsonObject(getDocument(dfName), dfSchema).toString,
+          getDocument(dfName).toJson(dfSchema.getOrElse(DataFrame.empty())).toString,
           schema.toString,
-          getDataFrameStatisticsString(getStatistics(dfName)),
+          getStatistics(dfName).toJson().toString,
           URIRef(s"${baseUrl}/$dfName"))
       })
       .map(Row.fromTuple(_)).toIterator

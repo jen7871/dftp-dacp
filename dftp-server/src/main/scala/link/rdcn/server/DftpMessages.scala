@@ -1,6 +1,5 @@
 package link.rdcn.server
 
-import link.rdcn.message.MapSerializer
 import link.rdcn.struct.{Blob, DataFrame, DataFrameMetaData}
 import link.rdcn.user.UserPrincipal
 import org.json.JSONObject
@@ -21,7 +20,7 @@ trait DftpRequest {
 
 trait DftpActionRequest extends DftpRequest {
   def getActionName(): String
-  def getRequestParameters(): JSONObject
+  val requestParameters: JSONObject
 }
 
 trait DftpPutStreamRequest extends DftpRequest {
@@ -35,13 +34,12 @@ trait DftpResponse {
 trait DftpActionResponse extends DftpResponse {
   def sendRedirect(dataFrameResponse: DataFrameResponse)
   def sendRedirect(blobResponse: BlobResponse)
-  def sendJsonString(json: String)
-  def sendJsonObject(json: JSONObject) = sendJsonString(json.toString)
+  def sendJsonString(json: String, code: Int = 200)
+  def sendJsonObject(json: JSONObject, code: Int = 200) = sendJsonString(json.toString, code)
 }
 
 trait DftpPlainResponse extends DftpResponse {
   def sendData(data: Array[Byte])
-  def sendData(map: Map[String, Any]): Unit = sendData(MapSerializer.encodeMap(map))
 }
 
 trait DftpPutStreamResponse extends DftpPlainResponse

@@ -202,21 +202,22 @@ class DftpServer(config: DftpServerConfig) extends Logging {
           val dataframe = dataframeResponse.getDataFrame
           val dftpTicket: DftpTicket = uriPool.registry(dataframe)
           responseJsonObject
-            .put("schema", dataframe.schema.toString)
+            .put("dataframeMetaData", dataframeResponse.getDataFrameMetaData.toJson())
             .put("ticket", dftpTicket)
-          sendJsonObject(responseJsonObject)
+          sendJsonObject(responseJsonObject, 304)
         }
 
         override def sendRedirect(blobResponse: BlobResponse): Unit = {
           val dftpTicket: DftpTicket = uriPool.registry(blobResponse.getBlob)
-          sendJsonObject(new JSONObject().put("ticket", dftpTicket))
+          sendJsonObject(new JSONObject().put("ticket", dftpTicket), 304)
         }
 
         override def sendError(errorCode: Int, message: String): Unit = {
           sendErrorWithFlightStatus(errorCode, message)
         }
 
-        override def sendJsonString(json: String): Unit = {
+        override def sendJsonString(json: String, code: Int = 200): Unit = {
+          listener.onNext(new Result(CodecUtils.encodeString(code.toString)))
           listener.onNext(new Result(CodecUtils.encodeString(json)))
           listener.onCompleted()
         }
@@ -226,7 +227,7 @@ class DftpServer(config: DftpServerConfig) extends Logging {
 
         override def getActionName(): String = action.getType
 
-        override def getRequestParameters(): JSONObject = {
+        lazy val requestParameters: JSONObject = {
           new JSONObject(CodecUtils.decodeString(action.getBody))
         }
 
@@ -286,6 +287,7 @@ class DftpServer(config: DftpServerConfig) extends Logging {
       }else {
         sendErrorWithFlightStatus(400, s"not found ticket $dftpTicket")
       }
+
       def sendDataFrame(dataFrame: DataFrame): Unit = {
         val schema = convertStructTypeToArrowSchema(dataFrame.schema)
         val childAllocator = allocator.newChildAllocator("flight-session", 0, Long.MaxValue)

@@ -40,19 +40,60 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
    * @param parameters JSON-formatted string representing the parameters of the action
    * @return a JSON-formatted string containing the execution result returned by the server
    */
-  def doAction(actionName: String, parameters: String = new JSONObject().toString): String = {
-    val actionResultIter = flightClient.doAction(new Action(actionName, CodecUtils.encodeString(parameters)))
-    CodecUtils.decodeString(actionResultIter.next().getBody)
+  def doAction(actionName: String, parameters: String = new JSONObject().toString): ActionResult = {
+    try{
+      val actionResultIter = flightClient.doAction(new Action(actionName, CodecUtils.encodeString(parameters)))
+      if(!actionResultIter.hasNext) ActionResult(500, """{"error":"no response from server"}""")
+      else {
+        val code = CodecUtils.decodeString(actionResultIter.next().getBody).toInt
+        val result = if (actionResultIter.hasNext) CodecUtils.decodeString(actionResultIter.next().getBody) else new JSONObject().toString
+        ActionResult(code, result)
+      }
+    } catch {
+      case e: io.grpc.StatusRuntimeException =>
+        logger.error(e)
+        val code = e.getStatus.getCode match {
+          case io.grpc.Status.Code.INVALID_ARGUMENT => 400
+          case io.grpc.Status.Code.UNAUTHENTICATED => 401
+          case io.grpc.Status.Code.PERMISSION_DENIED => 403
+          case io.grpc.Status.Code.NOT_FOUND => 404
+          case io.grpc.Status.Code.DEADLINE_EXCEEDED => 408
+          case io.grpc.Status.Code.ALREADY_EXISTS => 409
+          case io.grpc.Status.Code.INTERNAL => 500
+          case io.grpc.Status.Code.UNIMPLEMENTED => 501
+          case io.grpc.Status.Code.UNAVAILABLE => 503
+          case _ => 520 // Unknown
+        }
+        ActionResult(code, s"""{"error":"${e.getMessage}"}""")
+      case e: Exception =>
+        logger.error(e)
+        ActionResult(520, s"""{"error":"${e.getMessage}"}""")// Unknown
+    }
+  }
+
+  private def mapFlightExceptionToStatusCode(e: Throwable): Int = e match {
+    case e: io.grpc.StatusRuntimeException =>
+      e.getStatus.getCode match {
+        case io.grpc.Status.Code.INVALID_ARGUMENT => 400
+        case io.grpc.Status.Code.UNAUTHENTICATED => 401
+        case io.grpc.Status.Code.PERMISSION_DENIED => 403
+        case io.grpc.Status.Code.NOT_FOUND => 404
+        case io.grpc.Status.Code.DEADLINE_EXCEEDED => 408
+        case io.grpc.Status.Code.ALREADY_EXISTS => 409
+        case io.grpc.Status.Code.INTERNAL => 500
+        case io.grpc.Status.Code.UNIMPLEMENTED => 501
+        case io.grpc.Status.Code.UNAVAILABLE => 503
+        case _ => 520 // Unknown
+      }
+    case _ => 520 // Unknown
   }
 
   protected def openDataFrame(transformOp: TransformOp): DataFrameHandle = {
-    val responseJson = new JSONObject(doAction(ActionMethodType.GET, transformOp.toJsonString))
-    val dataFrameMeta = new DataFrameMetaData {
-      override def getDataFrameSchema: StructType =
-        StructType.fromString(responseJson.getString("schema"))
-    }
+    val responseJson = new JSONObject(doAction(ActionMethodType.GET, transformOp.toJsonString).result)
+
     new DataFrameHandle {
-      override def getDataFrameMeta: DataFrameMetaData = dataFrameMeta
+      override def getDataFrameMeta: DataFrameMetaData =
+        DataFrameMetaData.fromJson(responseJson.getJSONObject("dataframeMetaData"))
 
       override def getDataFrameTicket: DftpTicket = responseJson.getString("ticket")
     }
@@ -292,6 +333,8 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
       unloader.getRecordBatch
     }
   }
+
+  private case class ActionResult(statusCode: Int, result: String)
 }
 
 

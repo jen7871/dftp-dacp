@@ -1,11 +1,11 @@
 package link.rdcn.server.module
 
-import link.rdcn.Logging
+import link.rdcn.{Logging, server}
 import link.rdcn.message.ActionMethodType
 import link.rdcn.operation.{ExecutionContext, TransformOp}
 import link.rdcn.server._
 import link.rdcn.server.exception.{DataFrameNotFoundException, TicketExpiryException, TicketNotFoundException}
-import link.rdcn.struct.DataFrame
+import link.rdcn.struct.{DataFrame, DataFrameMetaData, StructType}
 import link.rdcn.user.UserPrincipal
 
 class BaseDftpModule extends DftpModule with Logging{
@@ -36,7 +36,7 @@ class BaseDftpModule extends DftpModule with Logging{
             override def doAction(request: DftpActionRequest, response: DftpActionResponse): Unit = {
               request.getActionName() match {
                 case ActionMethodType.GET =>
-                  val requestJsonObject = request.getRequestParameters()
+                  val requestJsonObject = request.requestParameters
                   val transformOp: TransformOp = TransformOp.fromJsonObject(requestJsonObject)
                   val dataFrame = transformOp.execute(new ExecutionContext {
                     override def loadSourceDataFrame(dataFrameNameUrl: String): Option[DataFrame] = {
@@ -50,7 +50,15 @@ class BaseDftpModule extends DftpModule with Logging{
                       }))
                     }
                   })
-                  response.sendRedirect(dataFrame)
+                  val dataFrameResponse: DataFrameResponse = new DataFrameResponse {
+                    override def getDataFrameMetaData: DataFrameMetaData =
+                      new DataFrameMetaData {
+                        override def getDataFrameSchema: StructType = dataFrame.schema
+                      }
+
+                    override def getDataFrame: DataFrame = dataFrame
+                  }
+                  response.sendRedirect(dataFrameResponse)
               }
             }
 

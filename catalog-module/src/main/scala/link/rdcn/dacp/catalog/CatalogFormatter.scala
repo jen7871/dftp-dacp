@@ -18,36 +18,6 @@ import java.lang.management.ManagementFactory
  */
 object CatalogFormatter {
 
-  def getDataFrameDocumentJsonObject(document: DataFrameDocument,
-                                     schema: Option[StructType]): JSONObject = {
-    val ja = new JSONArray()
-    schema match {
-      case None => new JSONObject().put("document", ja)
-      case Some(dfSchema) =>
-        val newSchema = StructType.empty
-          .add("SchemaUrl",StringType)
-          .add("ColumnUrl", StringType)
-          .add("ColumnAlias", StringType)
-          .add("ColumnTitle", StringType)
-        val stream: Seq[Row] = dfSchema.columns.map(col => col.name)
-          .map(name => Seq(document.getSchemaURL(),
-            document.getColumnURL(name).getOrElse(""),
-            document.getColumnAlias(name).getOrElse(""),
-            document.getColumnTitle(name).getOrElse("")))
-          .map(seq => link.rdcn.struct.Row.fromSeq(seq))
-        stream.map(_.toJsonObject(dfSchema)).foreach(ja.put(_))
-        new JSONObject().put("document", ja)
-    }
-
-  }
-
-  def getDataFrameStatisticsString(statistics: DataFrameStatistics): String = {
-    val jo = new JSONObject()
-    jo.put("byteSize", statistics.byteSize)
-    jo.put("rowCount", statistics.rowCount)
-    jo.toString()
-  }
-
   def getSystemInfo(): JSONObject = {
     val osBean = ManagementFactory.getOperatingSystemMXBean
       .asInstanceOf[OperatingSystemMXBean]
