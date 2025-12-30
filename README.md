@@ -75,7 +75,7 @@ A quick way to deploy DFTP server is using the packaged distribution, which does
 ```bash
 cd packaging
 # Package the server
-mvn clean package -P server-unix-dist
+mvn clean package -P dftp-server-unix-dist
 
 # Unpack the generated tarball in your local directory, e.g. /usr/local/
 tar -zxvf dftp-server-<version>.tar.gz
@@ -150,9 +150,9 @@ df.foreach(row => process(row))     // Process each row individually
 #### Server Deployment (Packaged Distribution)
 DACP server can be deployed in a similar way to DFTP.
 ```bash
-cd catalog-module
+cd packaging
 # Package the server
-mvn clean package -P server-unix-dist
+mvn clean package -P dacp-server-unix-dist
 
 # Unpack the generated tarball
 tar -zxvf dacp-server-<version>.tar.gz
