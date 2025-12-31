@@ -8,7 +8,7 @@ import link.rdcn.operation._
 import link.rdcn.struct.ValueType.{BlobType, RefType}
 import link.rdcn.struct._
 import link.rdcn.user.Credentials
-import link.rdcn.util.CodecUtils
+import link.rdcn.util.{CodecUtils, DataUtils}
 import org.apache.arrow.flight.auth.ClientAuthHandler
 import org.apache.arrow.flight._
 import org.apache.arrow.memory.{BufferAllocator, RootAllocator}
@@ -52,18 +52,7 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
     } catch {
       case e: io.grpc.StatusRuntimeException =>
         logger.error(e)
-        val code = e.getStatus.getCode match {
-          case io.grpc.Status.Code.INVALID_ARGUMENT => 400
-          case io.grpc.Status.Code.UNAUTHENTICATED => 401
-          case io.grpc.Status.Code.PERMISSION_DENIED => 403
-          case io.grpc.Status.Code.NOT_FOUND => 404
-          case io.grpc.Status.Code.DEADLINE_EXCEEDED => 408
-          case io.grpc.Status.Code.ALREADY_EXISTS => 409
-          case io.grpc.Status.Code.INTERNAL => 500
-          case io.grpc.Status.Code.UNIMPLEMENTED => 501
-          case io.grpc.Status.Code.UNAVAILABLE => 503
-          case _ => 520 // Unknown
-        }
+        val code = mapFlightExceptionToStatusCode(e)
         ActionResult(code, s"""{"error":"${e.getMessage}"}""")
       case e: Exception =>
         logger.error(e)
@@ -141,12 +130,31 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
     }
   }
 
-  def put(dataFrame: DataFrame, dataBatchLen: Int = 100): Array[Byte] = {
+  def put(blob: Blob, parameters: String): Iterator[String] = {
+    blob.offerStream[Iterator[String]](inputStream => {
+      val stream: Iterator[Row] = DataUtils.chunkedIterator(inputStream)
+        .map(bytes => Row.fromSeq(Seq(bytes)))
+      val schema = StructType.blobStreamStructType
+      val df = DefaultDataFrame(schema, stream)
+      put(df, parameters)
+    })
+  }
+
+  def put(dataFrame: DataFrame, parameters: String): Iterator[String] =
+    putStream(dataFrame, putStream(parameters))
+
+  def putStream(parameters: String): DftpTicket = {
+    val responseJson = doAction(ActionMethodType.PUT, parameters).result
+    val jo = new JSONObject(responseJson)
+    jo.getString("ticket")
+  }
+
+  def putStream(dataFrame: DataFrame, dftpTicket: DftpTicket, dataBatchLen: Int = 100): Iterator[String] = {
     val arrowSchema = convertStructTypeToArrowSchema(dataFrame.schema)
-    val childAllocator = allocator.newChildAllocator("put-data-session", 0, Long.MaxValue)
+    val childAllocator = allocator.newChildAllocator("putStream-data-session", 0, Long.MaxValue)
     val root = VectorSchemaRoot.create(arrowSchema, childAllocator)
     val putListener = new SyncPutListener
-    val writer = flightClient.startPut(FlightDescriptor.path(""), root, putListener)
+    val writer = flightClient.startPut(FlightDescriptor.path(dftpTicket), root, putListener)
     val loader = new VectorLoader(root)
     dataFrame.mapIterator(iter => {
       val arrowFlightStreamWriter = ArrowFlightStreamWriter(iter)
@@ -163,7 +171,7 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
           }
         })
         writer.completed()
-        ClientUtils.parsePutListener(putListener).getOrElse(Array.empty)
+        ClientUtils.parsePutListener(putListener)
       } catch {
         case e: Throwable => writer.error(e)
           throw e

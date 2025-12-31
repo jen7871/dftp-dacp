@@ -2,6 +2,7 @@ package link.rdcn.client
 
 import link.rdcn.struct.ValueType._
 import link.rdcn.struct._
+import link.rdcn.util.CodecUtils
 import org.apache.arrow.flight.{PutResult, Result, SyncPutListener}
 import org.apache.arrow.memory.BufferAllocator
 import org.apache.arrow.vector.ipc.ArrowStreamReader
@@ -81,19 +82,22 @@ object ClientUtils {
     new Schema(fields.asJava)
   }
 
-  def parsePutListener(putListener: SyncPutListener): Option[Array[Byte]] = {
-    val ack: PutResult = putListener.read()
-    if (ack == null) {
-      putListener.getResult()
-      None
-    } else {
-      try {
-        val metadataBuf = ack.getApplicationMetadata
-        val bytes = new Array[Byte](metadataBuf.readableBytes().toInt)
-        metadataBuf.readBytes(bytes)
-        Some(bytes)
-      } finally {
-        ack.close()
+  def parsePutListener(putListener: SyncPutListener): Iterator[String] = {
+    new Iterator[String] {
+      private var nextAck: Option[PutResult] = Option(putListener.read())
+
+      override def hasNext: Boolean = nextAck.isDefined
+
+      override def next(): String = {
+        nextAck match {
+          case Some(ack) =>
+            val metadataBuf = ack.getApplicationMetadata
+            val bytes = new Array[Byte](metadataBuf.readableBytes().toInt)
+            metadataBuf.readBytes(bytes)
+            CodecUtils.decodeString(bytes)
+          case None =>
+            throw new NoSuchElementException("No more ACKs")
+        }
       }
     }
   }

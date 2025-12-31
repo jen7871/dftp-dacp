@@ -233,6 +233,8 @@ class DftpServer(config: DftpServerConfig) extends Logging {
 
         override def getUserPrincipal(): UserPrincipal =
           authenticatedUserMap.get(callContext.peerIdentity())
+
+        override def getRequestParameters(): JSONObject = requestParameters
       }
 
       kernelModule.doAction(actionRequest, actionResponse)
@@ -327,7 +329,7 @@ class DftpServer(config: DftpServerConfig) extends Logging {
                             flightStream: FlightStream,
                             ackStream: FlightProducer.StreamListener[PutResult]
                           ): Runnable = {
-      flightStream.getDescriptor().getPath().get(0)
+      val dftpTicket: DftpTicket = flightStream.getDescriptor().getPath().get(0)
       new Runnable {
         override def run(): Unit = {
           val request = new DftpPutStreamRequest {

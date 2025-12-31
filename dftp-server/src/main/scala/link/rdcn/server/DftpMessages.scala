@@ -20,7 +20,7 @@ trait DftpRequest {
 
 trait DftpActionRequest extends DftpRequest {
   def getActionName(): String
-  val requestParameters: JSONObject
+  def getRequestParameters(): JSONObject
 }
 
 trait DftpPutStreamRequest extends DftpRequest {

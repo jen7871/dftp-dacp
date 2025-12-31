@@ -36,7 +36,7 @@ class BaseDftpModule extends DftpModule with Logging{
             override def doAction(request: DftpActionRequest, response: DftpActionResponse): Unit = {
               request.getActionName() match {
                 case ActionMethodType.GET =>
-                  val requestJsonObject = request.requestParameters
+                  val requestJsonObject = request.getRequestParameters()
                   val transformOp: TransformOp = TransformOp.fromJsonObject(requestJsonObject)
                   val dataFrame = transformOp.execute(new ExecutionContext {
                     override def loadSourceDataFrame(dataFrameNameUrl: String): Option[DataFrame] = {
