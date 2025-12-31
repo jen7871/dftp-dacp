@@ -1,16 +1,12 @@
 package link.rdcn.struct
 
-import link.rdcn.struct
 import link.rdcn.struct.ValueType.RefType
 import link.rdcn.util.{DataUtils, JdbcUtils}
 
 import java.io.{BufferedReader, File, FileReader}
 import java.nio.file.attribute.BasicFileAttributes
 import java.sql.{Connection, DriverManager, ResultSet}
-import org.apache.commons.csv.{CSVFormat, CSVParser, CSVRecord}
 
-import java.nio.file.Paths
-import scala.collection.JavaConverters.{asScalaBufferConverter, asScalaIteratorConverter}
 import scala.collection.mutable.ArrayBuffer
 
 /**
@@ -21,7 +17,14 @@ import scala.collection.mutable.ArrayBuffer
  */
 
 trait DataStreamSource {
-  final def dataFrame: DataFrame = DefaultDataFrame(schema, iterator)
+  final def dataFrame: DataFrame = {
+    val dataFrameStatistics = new DataFrameStatistics {
+      override def rowCount: Long = DataStreamSource.this.rowCount
+
+      override def byteSize: Long = -1L
+    }
+    DefaultDataFrame(schema, iterator, dataFrameStatistics)
+  }
 
   def rowCount: Long
 
@@ -32,10 +35,9 @@ trait DataStreamSource {
 
 object DataStreamSource {
 
-  private val sampleSize = 10
   private val jdbcFetchSize = 500
 
-  def guessCsvDelimiter(sampleLines: Seq[String]): String = {
+  private def guessCsvDelimiter(sampleLines: Seq[String]): String = {
     val candidates = List(",", ";", "\t", "\\|")
     candidates.maxBy{
       delim => sampleLines.head.split(delim).length
@@ -91,7 +93,7 @@ object DataStreamSource {
         (file._1.getName, file._2.size(),
           DataUtils.getFileType(file._1), file._2.creationTime().toMillis,
           file._2.lastModifiedTime().toMillis, file._2.lastAccessTime().toMillis,
-          Blob.fromFile(file._1))
+          Blob.fromFile(file._1, file._1.getAbsolutePath))
       }
       .map(Row.fromTuple(_))
     new DataStreamSource {
@@ -119,7 +121,7 @@ object DataStreamSource {
             override def schema: StructType = StructType.blobStreamStructType
 
             override def iterator: ClosableIterator[Row] =
-              ClosableIterator(Seq(Blob.fromFile(dfFile))
+              ClosableIterator(Seq(Blob.fromFile(dfFile, dfFile.getAbsolutePath))
                 .map(value => Row.fromSeq(Seq(value))).toIterator)(() => {})
           }
       }
@@ -132,7 +134,7 @@ object DataStreamSource {
               file._2.lastModifiedTime().toMillis,
               file._2.lastAccessTime().toMillis,
               null,
-              DFRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
+              URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
             )
           } else {
             (
@@ -141,8 +143,8 @@ object DataStreamSource {
               file._2.creationTime().toMillis,
               file._2.lastModifiedTime().toMillis,
               file._2.lastAccessTime().toMillis,
-              Blob.fromFile(file._1),
-              DFRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
+              Blob.fromFile(file._1, dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName),
+              URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
             )
           }
         }).map(Row.fromTuple(_))

@@ -29,6 +29,18 @@ trait TransformOp {
     this
   }
 
+  def executionProgress: Option[Double] = {
+    val hasProgressNode = inputs.flatMap(input => {
+      input match {
+        case sourceOp: SourceOp => Seq(sourceOp.executionProgress())
+        case other => other.inputs.map(_.executionProgress)
+      }
+    }).filter(_.nonEmpty).map(_.get)
+    if(hasProgressNode.nonEmpty){
+      Some(hasProgressNode.sum/hasProgressNode.size)
+    }else None
+  }
+
   def sourceUrlList: Set[String] = inputs.flatMap(_.sourceUrlList).toSet
 
   def operationType: String
@@ -37,31 +49,47 @@ trait TransformOp {
 
   def toJsonString: String = toJson.toString
 
+  override def toString: String = toJsonString
+
   def execute(ctx: ExecutionContext): DataFrame
 }
 
 object TransformOp {
-  def fromJsonString(json: String): TransformOp = {
-    val parsed: JSONObject = new JSONObject(json)
-    val opType = parsed.getString("type")
+
+  def fromJsonObject(jsonObject: JSONObject): TransformOp = {
+    val opType = jsonObject.getString("type")
     if (opType == "SourceOp") {
-      SourceOp(parsed.getString("dataFrameName"))
+      SourceOp(jsonObject.getString("dataFrameName"))
     } else {
-      val ja: JSONArray = parsed.getJSONArray("input")
-      val inputs = (0 until ja.length).map(ja.getJSONObject(_).toString()).map(fromJsonString(_))
+      val ja: JSONArray = jsonObject.getJSONArray("input")
+      val inputs = (0 until ja.length).map(ja.getJSONObject(_)).map(fromJsonObject(_))
       opType match {
-        case "Map" => MapOp(FunctionWrapper(parsed.getJSONObject("function")), inputs: _*)
-        case "Filter" => FilterOp(FunctionWrapper(parsed.getJSONObject("function")), inputs: _*)
-        case "Limit" => LimitOp(parsed.getJSONArray("args").getInt(0), inputs: _*)
-        case "Select" => SelectOp(inputs.head, parsed.getJSONArray("args").toList.asScala.map(_.toString): _*)
+        case "Map" => MapOp(FunctionWrapper(jsonObject.getJSONObject("function")), inputs: _*)
+        case "Filter" => FilterOp(FunctionWrapper(jsonObject.getJSONObject("function")), inputs: _*)
+        case "Limit" => LimitOp(jsonObject.getJSONArray("args").getInt(0), inputs: _*)
+        case "Select" => SelectOp(inputs.head, jsonObject.getJSONArray("args").toList.asScala.map(_.toString): _*)
       }
     }
   }
+
+  def fromJsonString(json: String): TransformOp = fromJsonObject(new JSONObject(json))
 }
 
 case class SourceOp(dataFrameUrl: String) extends TransformOp {
 
+  private var dataFrame: DataFrame = _
+
   override var inputs: Seq[TransformOp] = Seq.empty
+
+  override def executionProgress(): Option[Double] = {
+    if(dataFrame == null) Some(0.0)
+    else if(dataFrame.getDataFrameStatistic.rowCount == -1L) None
+    else {
+      val progress = dataFrame.mapIterator[Double](iter =>
+        iter.consumeItems/dataFrame.getDataFrameStatistic.rowCount)
+      Some(progress)
+    }
+  }
 
   override def operationType: String = "SourceOp"
 
@@ -69,8 +97,13 @@ case class SourceOp(dataFrameUrl: String) extends TransformOp {
 
   override def toJson: JSONObject = new JSONObject().put("type", operationType).put("dataFrameName", dataFrameUrl)
 
-  override def execute(ctx: ExecutionContext): DataFrame = ctx.loadSourceDataFrame(dataFrameUrl)
-    .getOrElse(throw new Exception(s"dataFrame $dataFrameUrl not found"))
+  override def execute(ctx: ExecutionContext): DataFrame = {
+    val df = ctx.loadSourceDataFrame(dataFrameUrl)
+      .getOrElse(throw new Exception(s"dataFrame $dataFrameUrl not found"))
+    dataFrame = df
+    dataFrame
+  }
+
 }
 
 case class MapOp(functionWrapper: FunctionWrapper, inputOperations: TransformOp*) extends TransformOp {

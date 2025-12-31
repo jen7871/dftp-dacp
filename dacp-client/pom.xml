@@ -22,7 +22,6 @@
             <groupId>link.rdcn</groupId>
             <artifactId>catalog-module</artifactId>
             <version>0.5.0-20251201</version>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>link.rdcn</groupId>

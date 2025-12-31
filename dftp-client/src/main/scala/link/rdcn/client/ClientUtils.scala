@@ -116,7 +116,7 @@ object ClientUtils {
             vector match {
               case v: VarCharVector =>
                 val strValue = v.getObject(rowIndex).toString
-                if (v.getField.getMetadata.isEmpty) strValue else DFRef(strValue)
+                if (v.getField.getMetadata.isEmpty) strValue else URIRef(strValue)
               case v: IntVector => v.get(rowIndex)
               case v: BigIntVector => v.get(rowIndex)
               case v: Float4Vector => v.get(rowIndex)

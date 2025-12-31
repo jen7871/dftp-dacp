@@ -270,7 +270,7 @@ class ClientUtilsJunitTest {
     assertEquals(true, row0._5)
     assertArrayEquals("binary1".getBytes(StandardCharsets.UTF_8), row0._6.asInstanceOf[Array[Byte]])
     assertEquals("hello", row0._7)
-    assertEquals(DFRef("ref1"), row0._8) // 验证 DFRef 转换
+    assertEquals(URIRef("ref1"), row0._8) // 验证 URIRef 转换
 
     // 检查第二行
     val row1 = rows(1)
@@ -281,7 +281,7 @@ class ClientUtilsJunitTest {
     assertEquals(false, row1._5)
     assertArrayEquals("binary2".getBytes(StandardCharsets.UTF_8), row1._6.asInstanceOf[Array[Byte]])
     assertEquals("world", row1._7)
-    assertEquals(DFRef("ref2"), row1._8)
+    assertEquals(URIRef("ref2"), row1._8)
 
     // 检查第三行 (包含 null 值)
     val row2 = rows(2)

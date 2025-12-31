@@ -21,7 +21,7 @@ trait DFValue {
   def valueType: ValueType
 }
 
-case class DFRef(url: String) extends DFValue {
+case class URIRef(url: String) extends DFValue {
 
   override def value: Any = url
 
