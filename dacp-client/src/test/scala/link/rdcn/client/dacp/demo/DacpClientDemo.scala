@@ -186,7 +186,7 @@ class DacpClientDemo {
 
   @Test
   def cookTest(): Unit = {
-    val dc = DacpClient.connect("dacp://0.0.0.0:3102", UsernamePassword("admin", "admin"))
+    val dc = DacpClient.connect("dacp://10.0.82.147:3101", UsernamePassword("admin", "admin"))
 
     val udf = new Transformer11 {
       override def transform(dataFrame: DataFrame): DataFrame = {
@@ -196,7 +196,7 @@ class DacpClientDemo {
 
     val transformerDAG = Flow(
       Map(
-        "A" -> SourceNode("/abc"),
+        "A" -> SourceNode("dacp://10.0.82.147:3101/relations"),
         "B" -> udf
       ),
       Map(

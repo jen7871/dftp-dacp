@@ -1,6 +1,6 @@
 package link.rdcn.dacp.catalog
 
-import CatalogFormatter.{getDataFrameDocumentJsonString, getDataFrameStatisticsString, getHostInfoString, getHostResourceString}
+import CatalogFormatter.{getHostInfo, getSystemInfo}
 import link.rdcn.Logging
 import link.rdcn.client.UrlValidator
 import link.rdcn.server._
@@ -40,20 +40,11 @@ class DacpCatalogModule extends DftpModule with Logging {
           case r: CollectActionMethodEvent => r.collect(new ActionMethod {
 
             override def accepts(request: DftpActionRequest): Boolean =
-              request.getActionName() match {
-                case "getDataSetMetaData" => true
-                case "getDataFrameMetaData" => true
-                case "getDocument" => true
-                case "getDataFrameInfo" => true
-                case "getSchema" => true
-                case "getHostInfo" => true
-                case "getServerInfo" => true
-                case _ => false
-              }
+              CatalogActionType.all.contains(request.getActionName())
 
             override def doAction(request: DftpActionRequest, response: DftpActionResponse): Unit = {
               val actionName = request.getActionName()
-              val parameter = request.getRequestParameters()
+              val parameter = request.requestParameters
               catalogServiceHolder.work[Unit](new TaskRunner[CatalogService, Unit] {
                 override def acceptedBy(worker: CatalogService): Boolean =
                   worker.accepts(new CatalogServiceRequest {
@@ -64,39 +55,37 @@ class DacpCatalogModule extends DftpModule with Logging {
 
                 override def executeWith(worker: CatalogService): Unit = {
                   actionName match {
-                    case "getDataSetMetaData" =>
+                    case CatalogActionType.GetDataSetMetaData =>
                       val model: Model = ModelFactory.createDefaultModel
                       worker.getDataSetMetaData(parameter.get("dataSetName").toString, model)
                       val writer = new StringWriter();
-                      model.write(writer, "RDF/XML");
+                      model.write(writer, "JSON-LD");
                       response.sendJsonString(writer.toString)
-                    case "getDataFrameMetaData" =>
+                    case CatalogActionType.GetDataFrameMetaData =>
                       val model: Model = ModelFactory.createDefaultModel
                       worker.getDataFrameMetaData(parameter.get("dataFrameName").toString, model)
                       val writer = new StringWriter();
-                      model.write(writer, "RDF/XML");
+                      model.write(writer, "JSON-LD");
                       response.sendJsonString(writer.toString)
-                    case "getDocument" =>
+                    case CatalogActionType.GetDocument =>
                       val dataFrameName = parameter.get("dataFrameName").toString
                       val document = worker.getDocument(dataFrameName)
                       val schema = worker.getSchema(dataFrameName)
-                      response.sendJsonString(getDataFrameDocumentJsonString(document, schema))
-                    case "getDataFrameInfo" =>
+                      response.sendJsonObject(document.toJson(schema.get))
+                    case CatalogActionType.GetDataFrameInfo =>
                       val dataFrameName = parameter.get("dataFrameName").toString
                       val dataFrameTitle = worker.getDataFrameTitle(dataFrameName).getOrElse(dataFrameName)
                       val statistics = worker.getStatistics(dataFrameName)
-                      val jo = new JSONObject()
-                      jo.put("byteSize", statistics.byteSize)
-                      jo.put("rowCount", statistics.rowCount)
+                      val jo = statistics.toJson()
                       jo.put("title", dataFrameTitle)
-                      response.sendJsonString(jo.toString())
-                    case "getSchema" =>
+                      response.sendJsonObject(jo)
+                    case CatalogActionType.GetSchema =>
                       val dataFrameName = parameter.get("dataFrameName").toString
-                      response.sendJsonString(worker.getSchema(dataFrameName)
+                      response.sendJsonObject(worker.getSchema(dataFrameName)
                         .getOrElse(StructType.empty)
-                        .toString)
-                    case "getHostInfo" => response.sendJsonString(getHostInfoString(serverContext))
-                    case "getServerInfo" => response.sendJsonString(getHostResourceString())
+                        .toJson())
+                    case CatalogActionType.GetHostInfo => response.sendJsonObject(getHostInfo(serverContext))
+                    case CatalogActionType.GetServerInfo => response.sendJsonObject(getSystemInfo())
                   }
                 }
                 override def handleFailure(): Unit =

@@ -119,9 +119,9 @@ trait CatalogService {
         (dfName,
           getStatistics(dfName).rowCount,
           getDataFrameTitle(dfName).getOrElse(null),
-          getDataFrameDocumentJsonString(getDocument(dfName), dfSchema),
+          getDocument(dfName).toJson(dfSchema.getOrElse(DataFrame.empty())).toString,
           schema.toString,
-          getDataFrameStatisticsString(getStatistics(dfName)),
+          getStatistics(dfName).toJson().toString,
           URIRef(s"${baseUrl}/$dfName"))
       })
       .map(Row.fromTuple(_)).toIterator
@@ -133,7 +133,7 @@ trait CatalogService {
    * */
   final def doListHostInfo(serverContext: ServerContext): DataFrame = {
     val schema = StructType.empty.add("hostInfo", StringType).add("resourceInfo", StringType)
-    val stream = Seq((getHostInfoString(serverContext), getHostResourceString()))
+    val stream = Seq((getHostInfo(serverContext).toString, getSystemInfo().toString))
       .map(Row.fromTuple(_)).toIterator
     DefaultDataFrame(schema, stream)
   }

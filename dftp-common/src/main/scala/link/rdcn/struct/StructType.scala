@@ -62,10 +62,7 @@ case class StructType(val columns: Seq[Column]) {
 
   def append(column: Column): StructType = new StructType(columns :+ column)
 
-//  override def toString: String =
-//    columns.map(c => s"${c.name}: ${c.colType}").mkString("schema(", ", ", ")")
-
-  override def toString: String = {
+  def toJson(): JSONObject = {
     val jsonArray = new JSONArray()
     columns.foreach { col =>
       val jo = new JSONObject()
@@ -74,8 +71,10 @@ case class StructType(val columns: Seq[Column]) {
       jo.put("nullable", col.nullable)
       jsonArray.put(jo)
     }
-    jsonArray.toString
+    new JSONObject().put("schema", jsonArray)
   }
+
+  override def toString: String = toJson().toString
 }
 
 object StructType {
@@ -91,12 +90,8 @@ object StructType {
   def fromNamesAsAny(names: Seq[String]): StructType =
     new StructType(names.map(n => Column(n, ValueType.StringType)))
 
-  def fromString(jsonString: String): StructType = {
-    if (jsonString == null || jsonString.trim.isEmpty) {
-      return StructType.empty
-    }
-
-    val jsonArray = new JSONArray(jsonString)
+  def fromJson(jsonObject: JSONObject): StructType = {
+    val jsonArray = jsonObject.getJSONArray("schema")
     val columns = (0 until jsonArray.length()).map { i =>
       val jo = jsonArray.getJSONObject(i)
       val name = jo.getString("name")
@@ -105,6 +100,13 @@ object StructType {
       Column(name, colType, nullable)
     }
     StructType.fromSeq(columns)
+  }
+
+  def fromString(jsonString: String): StructType = {
+    if (jsonString == null || jsonString.trim.isEmpty) {
+      return StructType.empty
+    }
+    fromJson(new JSONObject(jsonString))
   }
 
   val empty: StructType = new StructType(Seq.empty)

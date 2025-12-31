@@ -5,6 +5,7 @@ import link.rdcn.client.UrlValidator
 import link.rdcn.message.DftpTicket
 import link.rdcn.message.DftpTicket.DftpTicket
 import link.rdcn.server.ServerUtils.convertStructTypeToArrowSchema
+import link.rdcn.server.exception.{TicketExpiryException, TicketNotFoundException}
 import link.rdcn.server.module.KernelModule
 import link.rdcn.struct._
 import link.rdcn.user.UserPrincipal
@@ -28,6 +29,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.LockSupport
 import java.util.{Optional, UUID}
 import scala.collection.JavaConverters._
+import scala.collection.concurrent.TrieMap
 
 /**
  * @Author renhao
@@ -76,6 +78,8 @@ class DftpServer(config: DftpServerConfig) extends Logging {
   @volatile private var flightServer: FlightServer = _
   @volatile private var serverThread: Thread = _
   @volatile private var started: Boolean = false
+
+  private val uriPool = new URIReferencePool
 
   def startBlocking(): Unit = synchronized {
     if (!started) {
@@ -193,25 +197,27 @@ class DftpServer(config: DftpServerConfig) extends Logging {
 
       val actionResponse = new DftpActionResponse {
 
-        override def sendRedirect(dataframe: DataFrame): Unit = {
+        override def sendRedirect(dataframeResponse: DataFrameResponse): Unit = {
           val responseJsonObject = new JSONObject()
-          val dftpTicket: DftpTicket = URIReferencePool.registry(dataframe)
+          val dataframe = dataframeResponse.getDataFrame
+          val dftpTicket: DftpTicket = uriPool.registry(dataframe)
           responseJsonObject
-            .put("schema", dataframe.schema.toString)
+            .put("dataframeMetaData", dataframeResponse.getDataFrameMetaData.toJson())
             .put("ticket", dftpTicket)
-          sendJsonObject(responseJsonObject)
+          sendJsonObject(responseJsonObject, 304)
         }
 
-        override def sendRedirect(blob: Blob): Unit = {
-          val dftpTicket: DftpTicket = URIReferencePool.registry(blob)
-          sendJsonObject(new JSONObject().put("ticket", dftpTicket))
+        override def sendRedirect(blobResponse: BlobResponse): Unit = {
+          val dftpTicket: DftpTicket = uriPool.registry(blobResponse.getBlob)
+          sendJsonObject(new JSONObject().put("ticket", dftpTicket), 304)
         }
 
         override def sendError(errorCode: Int, message: String): Unit = {
           sendErrorWithFlightStatus(errorCode, message)
         }
 
-        override def sendJsonString(json: String): Unit = {
+        override def sendJsonString(json: String, code: Int = 200): Unit = {
+          listener.onNext(new Result(CodecUtils.encodeString(code.toString)))
           listener.onNext(new Result(CodecUtils.encodeString(json)))
           listener.onCompleted()
         }
@@ -221,7 +227,7 @@ class DftpServer(config: DftpServerConfig) extends Logging {
 
         override def getActionName(): String = action.getType
 
-        override def getRequestParameters(): JSONObject = {
+        lazy val requestParameters: JSONObject = {
           new JSONObject(CodecUtils.decodeString(action.getBody))
         }
 
@@ -266,8 +272,8 @@ class DftpServer(config: DftpServerConfig) extends Logging {
 
       val dataBatchLen = 1000
       val dftpTicket = DftpTicket.getDftpTicket(ticket)
-      if(URIReferencePool.exists(dftpTicket)){
-        val dataFrame = URIReferencePool.getDataFrame(dftpTicket)
+      if(uriPool.exists(dftpTicket)){
+        val dataFrame = uriPool.getDataFrame(dftpTicket)
         if(dataFrame.isEmpty) sendErrorWithFlightStatus(400, s"No DataFrame associated with ticket: $dftpTicket")
         else {
           try{
@@ -281,6 +287,7 @@ class DftpServer(config: DftpServerConfig) extends Logging {
       }else {
         sendErrorWithFlightStatus(400, s"not found ticket $dftpTicket")
       }
+
       def sendDataFrame(dataFrame: DataFrame): Unit = {
         val schema = convertStructTypeToArrowSchema(dataFrame.schema)
         val childAllocator = allocator.newChildAllocator("flight-session", 0, Long.MaxValue)
@@ -320,6 +327,7 @@ class DftpServer(config: DftpServerConfig) extends Logging {
                             flightStream: FlightStream,
                             ackStream: FlightProducer.StreamListener[PutResult]
                           ): Runnable = {
+      flightStream.getDescriptor().getPath().get(0)
       new Runnable {
         override def run(): Unit = {
           val request = new DftpPutStreamRequest {
@@ -419,6 +427,51 @@ class DftpServer(config: DftpServerConfig) extends Logging {
       val unloader = new VectorUnloader(arrowRoot)
       unloader.getRecordBatch
     }
+  }
+
+  private class URIReferencePool {
+
+    private val dataFrameCache = TrieMap[String, DataFrame]()
+    private val ticketExpiryDateCache = TrieMap[String, Long]()
+
+    def registry(dataFrame: DataFrame, expiryDate: Long = -1L): DftpTicket = {
+      val dataFrameId = UUID.randomUUID().toString
+      dataFrameCache.put(dataFrameId, dataFrame)
+      ticketExpiryDateCache.put(dataFrameId, expiryDate)
+      dataFrameId
+    }
+
+    def registry(blob: Blob, expiryDate: Long = -1L): DftpTicket = {
+      val blobId = UUID.randomUUID().toString
+      val dataFrame = blob.offerStream[DataFrame](inputStream => {
+        val stream: Iterator[Row] = DataUtils.chunkedIterator(inputStream)
+          .map(bytes => Row.fromSeq(Seq(bytes)))
+        val schema = StructType.blobStreamStructType
+        DefaultDataFrame(schema, stream)
+      })
+      dataFrameCache.put(blobId, dataFrame)
+      ticketExpiryDateCache.put(blobId, expiryDate)
+      blobId
+    }
+
+    def exists(ticket: DftpTicket): Boolean = {
+      dataFrameCache.keys.toList.contains(ticket)
+    }
+
+    def getDataFrame(ticket: DftpTicket): Option[DataFrame] = {
+      val expiryDate = ticketExpiryDateCache.get(ticket)
+      if(expiryDate.isEmpty) throw new TicketNotFoundException(ticket)
+      else if(expiryDate.get < System.currentTimeMillis() && expiryDate.get != -1L) {
+        throw new TicketExpiryException(ticket, expiryDate.get)
+      }else dataFrameCache.get(ticket)
+    }
+
+    def cleanUp(): Unit = {
+      dataFrameCache.values.foreach(df => df.mapIterator[Unit](iter => iter.close()))
+      dataFrameCache.clear()
+      ticketExpiryDateCache.clear()
+    }
+
   }
 }
 

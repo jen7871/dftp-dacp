@@ -1,8 +1,6 @@
 package link.rdcn.server
 
-import link.rdcn.message.MapSerializer
-import link.rdcn.operation.TransformOp
-import link.rdcn.struct.{Blob, DataFrame, DataFrameHandle}
+import link.rdcn.struct.{Blob, DataFrame, DataFrameMetaData}
 import link.rdcn.user.UserPrincipal
 import org.json.JSONObject
 
@@ -22,7 +20,7 @@ trait DftpRequest {
 
 trait DftpActionRequest extends DftpRequest {
   def getActionName(): String
-  def getRequestParameters(): JSONObject
+  val requestParameters: JSONObject
 }
 
 trait DftpPutStreamRequest extends DftpRequest {
@@ -33,16 +31,24 @@ trait DftpResponse {
   def sendError(errorCode: Int, message: String): Unit
 }
 
-trait DftpPlainResponse extends DftpResponse {
-  def sendData(data: Array[Byte])
-  def sendData(map: Map[String, Any]): Unit = sendData(MapSerializer.encodeMap(map))
+trait DftpActionResponse extends DftpResponse {
+  def sendRedirect(dataFrameResponse: DataFrameResponse)
+  def sendRedirect(blobResponse: BlobResponse)
+  def sendJsonString(json: String, code: Int = 200)
+  def sendJsonObject(json: JSONObject, code: Int = 200) = sendJsonString(json.toString, code)
 }
 
-trait DftpActionResponse extends DftpResponse {
-  def sendRedirect(dataFrame: DataFrame)
-  def sendRedirect(blob: Blob)
-  def sendJsonString(json: String)
-  def sendJsonObject(json: JSONObject) = sendJsonString(json.toString)
+trait DftpPlainResponse extends DftpResponse {
+  def sendData(data: Array[Byte])
 }
 
 trait DftpPutStreamResponse extends DftpPlainResponse
+
+trait DataFrameResponse {
+  def getDataFrameMetaData: DataFrameMetaData
+  def getDataFrame: DataFrame
+}
+
+trait BlobResponse {
+  def getBlob: Blob
+}
