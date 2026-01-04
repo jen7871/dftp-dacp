@@ -8,13 +8,6 @@ import link.rdcn.struct.ValueType.{NullType, RefType}
  * @Data 2025/6/24 14:35
  * @Modified By:
  */
-
-sealed trait ValueType {
-  def name: String
-
-  override def toString: String = name
-}
-
 trait DFValue {
   def value: Any
 
@@ -29,6 +22,11 @@ case class URIRef(url: String) extends DFValue {
 
 }
 
+sealed trait ValueType {
+  def name: String
+
+  override def toString: String = name
+}
 
 object ValueType {
   case object IntType extends ValueType {

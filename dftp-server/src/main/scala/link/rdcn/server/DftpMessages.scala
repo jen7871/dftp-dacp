@@ -14,17 +14,22 @@ import scala.collection.mutable
  */
 trait DftpRequest {
   val attributes = mutable.Map[String, Any]()
-
   def getUserPrincipal(): UserPrincipal
+  def getRequestParameters(): JSONObject
 }
 
 trait DftpActionRequest extends DftpRequest {
   def getActionName(): String
-  def getRequestParameters(): JSONObject
 }
 
-trait DftpPutStreamRequest extends DftpRequest {
+trait DftpPutStreamRequest extends DftpRequest
+
+trait DftpPutDataFrameRequest extends DftpPutStreamRequest {
   def getDataFrame(): DataFrame
+}
+
+trait DftpPutBlobRequest extends DftpPutStreamRequest {
+  def getBlob(): Blob
 }
 
 trait DftpResponse {
@@ -32,17 +37,18 @@ trait DftpResponse {
 }
 
 trait DftpActionResponse extends DftpResponse {
-  def sendRedirect(dataFrameResponse: DataFrameResponse)
-  def sendRedirect(blobResponse: BlobResponse)
+  def attachStream(dataFrameResponse: DataFrameResponse)
+  def attachStream(blobResponse: BlobResponse)
+  def sendPutDataFrameParameters(json: JSONObject, code: Int = 200)
+  def sendPutBlobParameters(json: JSONObject, code: Int = 200)
   def sendJsonString(json: String, code: Int = 200)
   def sendJsonObject(json: JSONObject, code: Int = 200) = sendJsonString(json.toString, code)
 }
 
-trait DftpPlainResponse extends DftpResponse {
-  def sendData(data: Array[Byte])
+trait DftpPutStreamResponse extends DftpResponse {
+  def onNext(json: String)
+  def onCompleted()
 }
-
-trait DftpPutStreamResponse extends DftpPlainResponse
 
 trait DataFrameResponse {
   def getDataFrameMetaData: DataFrameMetaData

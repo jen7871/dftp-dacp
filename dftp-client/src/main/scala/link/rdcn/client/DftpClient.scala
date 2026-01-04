@@ -106,7 +106,7 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
               case other => throw new Exception(s"Blob parsing failed: expected Array[Byte], but got ${other}")
             }
           })
-          new IteratorInputStream(chunkIterator)
+          DataUtils.convertIteratorToInputStream(chunkIterator)
         })
         consume(inputStream)
       }
@@ -136,20 +136,26 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
         .map(bytes => Row.fromSeq(Seq(bytes)))
       val schema = StructType.blobStreamStructType
       val df = DefaultDataFrame(schema, stream)
-      put(df, parameters)
+      putStream(df, putBlobParameters(parameters))
     })
   }
 
-  def put(dataFrame: DataFrame, parameters: String): Iterator[String] =
-    putStream(dataFrame, putStream(parameters))
-
-  def putStream(parameters: String): DftpTicket = {
-    val responseJson = doAction(ActionMethodType.PUT, parameters).result
+  def putBlobParameters(parameters: String): DftpTicket = {
+    val responseJson = doAction(ActionMethodType.PUT_BLOB, parameters).result
     val jo = new JSONObject(responseJson)
     jo.getString("ticket")
   }
 
-  def putStream(dataFrame: DataFrame, dftpTicket: DftpTicket, dataBatchLen: Int = 100): Iterator[String] = {
+  def put(dataFrame: DataFrame, parameters: String): Iterator[String] =
+    putStream(dataFrame, putDataFrameParameters(parameters))
+
+  def putDataFrameParameters(parameters: String): DftpTicket = {
+    val responseJson = doAction(ActionMethodType.PUT_DATAFRAME, parameters).result
+    val jo = new JSONObject(responseJson)
+    jo.getString("ticket")
+  }
+
+  private def putStream(dataFrame: DataFrame, dftpTicket: DftpTicket, dataBatchLen: Int = 100): Iterator[String] = {
     val arrowSchema = convertStructTypeToArrowSchema(dataFrame.schema)
     val childAllocator = allocator.newChildAllocator("putStream-data-session", 0, Long.MaxValue)
     val root = VectorSchemaRoot.create(arrowSchema, childAllocator)
@@ -250,51 +256,6 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
     }
 
     override def getCallToken: Array[Byte] = callToken
-  }
-
-  private class IteratorInputStream(it: Iterator[Array[Byte]]) extends InputStream {
-    private var currentChunk: Array[Byte] = Array.emptyByteArray
-    private var index: Int = 0
-
-    /** 从流中读取一个字节 */
-    override def read(): Int = {
-      if (currentChunk == null) return -1
-      if (index >= currentChunk.length) {
-        if (it.hasNext) {
-          currentChunk = it.next()
-          index = 0
-          read()
-        } else {
-          currentChunk = null
-          -1
-        }
-      } else {
-        val b = currentChunk(index) & 0xff
-        index += 1
-        b
-      }
-    }
-
-    /** 从流中读取多个字节到缓冲区 */
-    override def read(b: Array[Byte], off: Int, len: Int): Int = {
-      if (currentChunk == null) return -1
-      var totalRead = 0
-      while (totalRead < len) {
-        if (index >= currentChunk.length) {
-          if (it.hasNext) {
-            currentChunk = it.next()
-            index = 0
-          } else {
-            return if (totalRead == 0) -1 else totalRead
-          }
-        }
-        val bytesToCopy = math.min(len - totalRead, currentChunk.length - index)
-        System.arraycopy(currentChunk, index, b, off + totalRead, bytesToCopy)
-        index += bytesToCopy
-        totalRead += bytesToCopy
-      }
-      totalRead
-    }
   }
 
   private case class ArrowFlightStreamWriter(stream: Iterator[Row]) {

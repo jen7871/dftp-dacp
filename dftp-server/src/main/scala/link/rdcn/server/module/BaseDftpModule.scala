@@ -58,7 +58,7 @@ class BaseDftpModule extends DftpModule with Logging{
 
                     override def getDataFrame: DataFrame = dataFrame
                   }
-                  response.sendRedirect(dataFrameResponse)
+                  response.attachStream(dataFrameResponse)
               }
             }
 
