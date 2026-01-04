@@ -21,7 +21,7 @@ import org.springframework.beans.factory.xml.XmlBeanDefinitionReader
 import org.springframework.context.support.GenericApplicationContext
 import org.springframework.core.io.FileUrlResource
 
-import java.io.File
+import java.io.{File, InputStream}
 import java.nio.charset.StandardCharsets
 import java.security.{PrivateKey, PublicKey}
 import java.util
@@ -80,6 +80,8 @@ class DftpServer(config: DftpServerConfig) extends Logging {
   @volatile private var started: Boolean = false
 
   private val uriPool = new URIReferencePool
+  private val putDataFrameParametersCache = TrieMap[String, JSONObject]()
+  private val putBlobParametersCache = TrieMap[String, JSONObject]()
 
   def startBlocking(): Unit = synchronized {
     if (!started) {
@@ -197,7 +199,7 @@ class DftpServer(config: DftpServerConfig) extends Logging {
 
       val actionResponse = new DftpActionResponse {
 
-        override def sendRedirect(dataframeResponse: DataFrameResponse): Unit = {
+        override def attachStream(dataframeResponse: DataFrameResponse): Unit = {
           val responseJsonObject = new JSONObject()
           val dataframe = dataframeResponse.getDataFrame
           val dftpTicket: DftpTicket = uriPool.registry(dataframe)
@@ -207,7 +209,7 @@ class DftpServer(config: DftpServerConfig) extends Logging {
           sendJsonObject(responseJsonObject, 304)
         }
 
-        override def sendRedirect(blobResponse: BlobResponse): Unit = {
+        override def attachStream(blobResponse: BlobResponse): Unit = {
           val dftpTicket: DftpTicket = uriPool.registry(blobResponse.getBlob)
           sendJsonObject(new JSONObject().put("ticket", dftpTicket), 304)
         }
@@ -221,6 +223,16 @@ class DftpServer(config: DftpServerConfig) extends Logging {
           listener.onNext(new Result(CodecUtils.encodeString(json)))
           listener.onCompleted()
         }
+
+        override def sendPutDataFrameParameters(json: JSONObject, code: Int): Unit = {
+          val putTicket = UUID.randomUUID().toString
+          putDataFrameParametersCache.put(putTicket, json)
+        }
+
+        override def sendPutBlobParameters(json: JSONObject, code: Int): Unit = {
+          val putTicket = UUID.randomUUID().toString
+          putBlobParametersCache.put(putTicket, json)
+        }
       }
 
       val actionRequest = new DftpActionRequest {
@@ -233,6 +245,8 @@ class DftpServer(config: DftpServerConfig) extends Logging {
 
         override def getUserPrincipal(): UserPrincipal =
           authenticatedUserMap.get(callContext.peerIdentity())
+
+        override def getRequestParameters(): JSONObject = requestParameters
       }
 
       kernelModule.doAction(actionRequest, actionResponse)
@@ -327,44 +341,80 @@ class DftpServer(config: DftpServerConfig) extends Logging {
                             flightStream: FlightStream,
                             ackStream: FlightProducer.StreamListener[PutResult]
                           ): Runnable = {
-      flightStream.getDescriptor().getPath().get(0)
+      val dftpTicket: DftpTicket = flightStream.getDescriptor().getPath().get(0)
       new Runnable {
         override def run(): Unit = {
-          val request = new DftpPutStreamRequest {
-            override def getDataFrame(): DataFrame = {
-              var schema = StructType.empty
-              if (flightStream.next()) {
-                val root = flightStream.getRoot
-                schema = ServerUtils.arrowSchemaToStructType(root.getSchema)
-                val stream = ServerUtils.flightStreamToRowIterator(flightStream)
-                DefaultDataFrame(schema, ClosableIterator(stream)())
-              } else {
-                DefaultDataFrame(schema, Iterator.empty)
-              }
-            }
-
-            override def getUserPrincipal(): UserPrincipal = authenticatedUserMap.get(callContext.peerIdentity())
-          }
-
           val response = new DftpPutStreamResponse {
             override def sendError(code: Int, message: String): Unit = sendErrorWithFlightStatus(code, message)
 
-            override def sendData(data: Array[Byte]): Unit =
+            override def onNext(json: String): Unit = {
               try {
-                val buf: ArrowBuf = allocator.buffer(data.length)
+                val bytes = CodecUtils.encodeString(json)
+                val buf: ArrowBuf = allocator.buffer(bytes.length)
                 try {
-                  buf.writeBytes(data)
+                  buf.writeBytes(bytes)
                   ackStream.onNext(PutResult.metadata(buf))
-                } finally {
+                } finally
                   buf.close()
-                }
-                ackStream.onCompleted()
               } catch {
                 case e: Throwable =>
                   e.printStackTrace()
                   ackStream.onError(e)
               }
+            }
+
+            override def onCompleted(): Unit = ackStream.onCompleted()
           }
+
+          val request: DftpPutStreamRequest = dftpTicket match {
+            case putTicket if putDataFrameParametersCache.contains(putTicket) =>
+              new DftpPutDataFrameRequest {
+                override def getDataFrame(): DataFrame = {
+                  var schema = StructType.empty
+                  if (flightStream.next()) {
+                    val root = flightStream.getRoot
+                    schema = ServerUtils.arrowSchemaToStructType(root.getSchema)
+                    val stream = ServerUtils.flightStreamToRowIterator(flightStream)
+                    DefaultDataFrame(schema, ClosableIterator(stream)())
+                  } else {
+                    DefaultDataFrame(schema, Iterator.empty)
+                  }
+                }
+
+                override def getUserPrincipal(): UserPrincipal =
+                  authenticatedUserMap.get(callContext.peerIdentity())
+
+                override def getRequestParameters(): JSONObject =
+                  putDataFrameParametersCache.get(putTicket).get
+              }
+            case putTicket if putBlobParametersCache.contains(putTicket) =>
+              new DftpPutBlobRequest {
+                override def getBlob(): Blob = new Blob {
+                  override val uri: DftpTicket = s"/$putTicket"
+
+                  override def offerStream[T](consume: InputStream => T): T = {
+                    val inputStream = if(flightStream.next()) {
+                      val stream: Iterator[Array[Byte]] = ServerUtils.flightStreamToRowIterator(flightStream)
+                        .map(row => row.get(0) match {
+                          case arr: Array[Byte] => arr
+                          case other => throw new IllegalArgumentException(
+                            s"Expected Array[Byte], but got ${other.getClass}"
+                          )
+                        })
+                      DataUtils.convertIteratorToInputStream(stream)
+                    }else InputStream.nullInputStream()
+                    consume(inputStream)
+                  }
+                }
+
+                override def getUserPrincipal(): UserPrincipal =
+                  authenticatedUserMap.get(callContext.peerIdentity())
+
+                override def getRequestParameters(): JSONObject =
+                  putBlobParametersCache.get(putTicket).get
+              }
+          }
+
 
           kernelModule.putStream(request, response)
         }

@@ -14,6 +14,8 @@ import java.nio.charset.StandardCharsets
 
 object ActionMethodType {
   final val GET = "GET"
+  final val PUT_BLOB = "PUT_BLOB"
+  final val PUT_DATAFRAME = "PUT_DATAFRAME"
 }
 
 object DftpTicket {
