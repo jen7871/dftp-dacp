@@ -6,6 +6,7 @@ import akka.http.scaladsl.model._
 import akka.stream.scaladsl.{FileIO, Source}
 import akka.util.ByteString
 import cn.cnic.operatordownload.client.OperatorClient
+import link.rdcn.dacp.optree.fifo.FileType.FileType
 import link.rdcn.dacp.optree.fifo.{DockerContainer, FileType}
 import link.rdcn.dacp.recipe.FifoFileBundleFlowNode
 import link.rdcn.dacp.utils.FileUtils
@@ -14,6 +15,7 @@ import org.json.{JSONArray, JSONObject}
 
 import java.io.File
 import java.nio.file.Paths
+import java.util
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 import scala.concurrent.ExecutionContext.Implicits.global

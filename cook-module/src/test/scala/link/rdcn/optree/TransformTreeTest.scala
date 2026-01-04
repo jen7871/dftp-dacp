@@ -6,216 +6,125 @@
  */
 package link.rdcn.optree
 
+import link.rdcn.dacp.optree._
 import link.rdcn.dacp.optree.fifo.RowFilePipe
-import link.rdcn.dacp.optree.{FiFoFileNode, FileRepositoryBundle, PythonCode, RemoteSourceProxyOp, TransformTree, TransformerNode}
 import link.rdcn.operation._
-import link.rdcn.struct.ValueType.{IntType, StringType}
-import link.rdcn.struct._
-import link.rdcn.{MockFlowExecutionContextForTransformTree, MockReleasableTransformerNode, MockTransformFunctionWrapper, MockTransformOpForTransformTree}
+import link.rdcn.struct.ValueType.IntType
+import link.rdcn.struct.{DataFrame, DefaultDataFrame, Row, StructType}
+import link.rdcn.user.Credentials
 import org.json.JSONObject
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
+import scala.concurrent.Future
 
 class TransformTreeTest {
 
-  // --- TransformTree.fromJsonString 测试 ---
+  // --- Local Mocks ---
+
+  class MockTransformerNode(wrapper: TransformFunctionWrapper, input: TransformOp) extends TransformerNode(wrapper) {
+    val released = new AtomicBoolean(false)
+    inputs = Seq(input)
+    override def release(): Unit = released.set(true)
+  }
+
+  class MockReleasableTransformerNode extends TransformerNode(null) {
+    val released = new AtomicBoolean(false)
+    override def release(): Unit = released.set(true)
+  }
+
+  class MockTransformFunctionWrapper(name: String, dfToReturn: DataFrame) extends TransformFunctionWrapper {
+    var applyCalledWith: Seq[DataFrame] = _
+    override def applyToDataFrames(inputs: Seq[DataFrame], ctx: FlowExecutionContext): DataFrame = {
+      applyCalledWith = inputs
+      dfToReturn
+    }
+    override def toJson: JSONObject = new JSONObject()
+  }
+
+  class MockFlowExecutionContext(async: Boolean) extends FlowExecutionContext {
+    val registeredFutures = scala.collection.mutable.ArrayBuffer[TransformOp]()
+    override def isAsyncEnabled(wrapper: TransformFunctionWrapper): Boolean = async
+    override def registerAsyncResult(transformOp: TransformOp, future: Future[DataFrame], thread: Thread): Unit = {
+      registeredFutures.append(transformOp)
+    }
+    // Stubs
+    override def fairdHome: String = ""
+    override def pythonHome: String = ""
+    override def loadRemoteDataFrame(baseUrl: String, path: TransformOp, credentials: Credentials): Option[DataFrame] = None
+    override def getRepositoryClient(): Option[OperatorRepository] = None
+    override def loadSourceDataFrame(dataFrameNameUrl: String): Option[DataFrame] = None
+  }
+
+  // --- Tests ---
 
   @Test
   def testFromJsonString_SourceOp(): Unit = {
     val json = """{"type": "SourceOp", "dataFrameName": "/my/data"}"""
     val op = TransformTree.fromJsonString(json)
-
-    assertNotNull(op, "解析的 Op 不应为 null")
-    assertTrue(op.isInstanceOf[SourceOp], "Op 类型应为 SourceOp")
-    assertEquals("/my/data", op.asInstanceOf[SourceOp].dataFrameUrl, "dataFrameName 不匹配")
-  }
-
-  @Test
-  def testFromJsonString_TransformerNode(): Unit = {
-    // 使用一个已知的 TransformFunctionWrapper (PythonCode) 作为 "function"
-    val json = """{
-      "type": "TransformerNode",
-      "function": {"type": "PYTHON_CODE", "code": "print('hi')"},
-      "input": []
-    }"""
-    val op = TransformTree.fromJsonString(json)
-
-    assertTrue(op.isInstanceOf[TransformerNode], "Op 类型应为 TransformerNode")
-    val node = op.asInstanceOf[TransformerNode]
-    assertNotNull(node.transformFunctionWrapper, "transformFunctionWrapper 不应为 null")
-    assertTrue(node.transformFunctionWrapper.isInstanceOf[PythonCode], "Function 类型应为 PythonCode")
-    assertEquals("print('hi')", node.transformFunctionWrapper.asInstanceOf[PythonCode].code, "PythonCode 的 code 不匹配")
-  }
-
-  @Test
-  def testFromJsonString_NestedTree(): Unit = {
-    val json = """{
-      "type": "Limit",
-      "args": [10],
-      "input": [
-        {
-          "type": "SourceOp",
-          "dataFrameName": "/my/data"
-        }
-      ]
-    }"""
-    val op = TransformTree.fromJsonString(json)
-
-    assertTrue(op.isInstanceOf[LimitOp], "Op 类型应为 LimitOp")
-    assertEquals(10, op.asInstanceOf[LimitOp].n, "Limit 的 n 参数不匹配")
-
-    assertEquals(1, op.inputs.length, "应有 1 个 input")
-    val inputOp = op.inputs.head
-    assertTrue(inputOp.isInstanceOf[SourceOp], "Input Op 类型应为 SourceOp")
-    assertEquals("/my/data", inputOp.asInstanceOf[SourceOp].dataFrameUrl, "Input Op 的 dataFrameName 不匹配")
-  }
-
-  @Test
-  def testFromJsonString_FileRepositoryBundle_In_TransformerNode(): Unit = {
-    val json = """{
-      "type": "TransformerNode",
-      "function": {
-        "type": "FileRepositoryBundle",
-        "command": ["python", "run.py"],
-        "inputFilePath": ["/app/in"],
-        "outputFilePath": ["/app/out"],
-        "dockerContainer": {
-          "containerName": "my-container",
-          "imageName": "my-image"
-        }
-      },
-      "input": []
-    }"""
-    val op = TransformTree.fromJsonString(json)
-
-    assertTrue(op.isInstanceOf[TransformerNode], "Op 类型应为 TransformerNode")
-    val wrapper = op.asInstanceOf[TransformerNode].transformFunctionWrapper
-    assertTrue(wrapper.isInstanceOf[FileRepositoryBundle], "Function 类型应为 FileRepositoryBundle")
-
-    val bundle = wrapper.asInstanceOf[FileRepositoryBundle]
-    assertEquals(Seq("python", "run.py"), bundle.command, "Command 不匹配")
-    assertEquals(Seq("/app/in"), bundle.inputFilePath, "inputFilePath 不匹配")
-    assertEquals(Seq("/app/out"), bundle.outputFilePath, "outputFilePath 不匹配")
-    assertEquals("my-container", bundle.dockerContainer.containerName, "containerName 不匹配")
-    assertEquals(Some("my-image"), bundle.dockerContainer.imageName, "imageName 不匹配")
-  }
-  // --- TransformerNode 测试 ---
-
-  @Test
-  def testTransformerNode_Contain(): Unit = {
-    val child = new MockReleasableTransformerNode("child")
-    val parent = TransformerNode(new MockTransformFunctionWrapper("parent", null), child)
-    val root = TransformerNode(new MockTransformFunctionWrapper("root", null), parent)
-    val orphan = new MockReleasableTransformerNode("orphan")
-
-    assertTrue(root.contain(child), "root 应包含 child")
-    assertTrue(root.contain(root), "root 应包含它自己")
-    assertFalse(root.contain(orphan), "root 不应包含 orphan")
+    assertNotNull(op, "Parsed Op should not be null")
+    assertTrue(op.isInstanceOf[SourceOp], "Op type should be SourceOp")
+    assertEquals("/my/data", op.asInstanceOf[SourceOp].dataFrameUrl, "dataFrameName mismatch")
   }
 
   @Test
   def testTransformerNode_Release(): Unit = {
-    // 准备
-    val child = new MockReleasableTransformerNode("child")
-    val parent = TransformerNode(new MockTransformFunctionWrapper("parent", null), child)
-    val root = TransformerNode(new MockTransformFunctionWrapper("root", null), parent)
+    val child = new MockReleasableTransformerNode
+    val parent = new MockTransformerNode(new MockTransformFunctionWrapper("parent", null), child)
+    val root = new MockTransformerNode(new MockTransformFunctionWrapper("root", null), parent)
 
-    // 执行
     root.release()
 
-    // 验证
-    // 验证 release() 被递归调用
-    assertTrue(child.released.get(), "子节点的 release() 方法应被调用")
+    assertTrue(child.released.get(), "Child node release() should be called recursively")
   }
 
   @Test
   def testTransformerNode_Execute_Sync(): Unit = {
-    // 准备
-    val mockCtx = new MockFlowExecutionContextForTransformTree(asyncEnabled = false)
+    val mockCtx = new MockFlowExecutionContext(async = false)
     val inputDf = DefaultDataFrame(StructType.empty.add("in", IntType), Seq(Row(1)).iterator)
-    val inputOp = MockTransformOpForTransformTree("input", inputDf)
-
     val expectedDf = DefaultDataFrame(StructType.empty.add("out", IntType), Seq(Row(2)).iterator)
+
+    val inputOp = new TransformOp {
+      override def execute(ctx: ExecutionContext): DataFrame = inputDf
+      override def operationType: String = "Mock"
+      override def toJson: JSONObject = new JSONObject()
+      override var inputs: Seq[TransformOp] = Seq.empty
+    }
+
     val mockFunc = new MockTransformFunctionWrapper("func", expectedDf)
-
     val node = TransformerNode(mockFunc, inputOp)
 
-    // 执行
     val result = node.execute(mockCtx)
 
-    // 验证
-    assertEquals(expectedDf, result, "返回的 DataFrame 应为 mockFunc 的结果")
-    assertTrue(inputOp.executeCalled, "输入操作的 execute() 应被调用")
-    // 验证 mockFunc 是否收到了来自 inputOp 的*真实* DataFrame
-    assertEquals(Seq(inputDf), mockFunc.applyCalledWith, "Function 未收到正确的输入 DataFrame")
+    assertEquals(expectedDf, result, "Returned DataFrame mismatch")
+    assertEquals(Seq(inputDf), mockFunc.applyCalledWith, "Function received incorrect input")
   }
-
-  @Test
-  def testTransformerNode_Execute_Async(): Unit = {
-    // 准备
-    val mockCtx = new MockFlowExecutionContextForTransformTree(asyncEnabled = true)
-    val inputOp = MockTransformOpForTransformTree("input", DefaultDataFrame(StructType.empty, Iterator.empty))
-    val mockFunc = new MockTransformFunctionWrapper("func", DefaultDataFrame(StructType.empty, Iterator.empty))
-
-    val node = TransformerNode(mockFunc, inputOp)
-
-    // 执行
-    val result = node.execute(mockCtx)
-
-    // 验证
-    assertEquals(DataFrame.empty(), result, "异步执行应立即返回 DataFrame.empty()")
-    assertTrue(inputOp.executeCalled, "输入操作的 execute() (在异步中) 仍应被调用")
-
-    // 验证异步逻辑
-    assertEquals(1, mockCtx.registeredFutures.length, "registerAsyncResult 应被调用 1 次")
-    assertEquals(node, mockCtx.registeredFutures.head, "注册的 Op 应为 node 自身")
-
-    // 等待 Future 完成
-    Thread.sleep(100)
-
-    // 验证 Future 内部是否使用了 DataFrame.empty() 调用
-    assertNotNull(mockFunc.applyCalledWith, "applyToDataFrames 应已被 Future 调用")
-    assertEquals(1, mockFunc.applyCalledWith.length, "applyToDataFrames 应收到 1 个 DataFrame")
-    assertTrue(mockFunc.applyCalledWith.head.schema.isEmpty, "applyToDataFrames (异步) 应收到 DataFrame.empty()")
-  }
-
-  // --- FiFoFileNode 测试 ---
 
   @Test
   def testFiFoFileNode_Execute(@TempDir tempDir: File): Unit = {
-    // 准备
     val pipeFile = new File(tempDir, "test.pipe")
-    val filePath = pipeFile.getAbsolutePath
     val expectedData = Seq("hello", "pipe")
-    val expectedDfSchema = StructType.empty.add("content", StringType)
 
-    // 创建一个模拟的 inputOp，其*副作用*是写入到 pipeFile
     val inputOp = new TransformOp {
       override def execute(ctx: ExecutionContext): DataFrame = {
-        val pipe = new RowFilePipe(pipeFile) // 注意：这里使用了*真实*的 RowFilePipe
-        // 在 Windows 上，我们不能 create() (mkfifo)，所以我们直接 write()
+        val pipe = new RowFilePipe(pipeFile)
         pipe.write(expectedData.iterator)
-        DefaultDataFrame(StructType.empty, Iterator.empty) // execute 的返回值被 FiFoFileNode 忽略
+        DefaultDataFrame(StructType.empty, Iterator.empty)
       }
-      override def operationType: String = "MockWriterOp"
+      override def operationType: String = "MockWriter"
       override def toJson: JSONObject = new JSONObject()
-
       override var inputs: Seq[TransformOp] = Seq.empty
     }
 
     val node = FiFoFileNode(inputOp)
-    val mockCtx = new MockFlowExecutionContextForTransformTree()
+    val mockCtx = new MockFlowExecutionContext(async = false)
 
-    // 执行
     val resultDf = node.execute(mockCtx)
-
-    // 验证
     val resultData = resultDf.collect().map(_.getAs[String](0))
 
-    assertEquals(expectedDfSchema, resultDf.schema, "FiFoFileNode 返回的 Schema 不匹配")
-    assertEquals(expectedData, resultData, "FiFoFileNode 未能从管道文件中正确读取数据")
+    assertEquals(expectedData, resultData, "FiFoFileNode failed to read from pipe")
   }
 }

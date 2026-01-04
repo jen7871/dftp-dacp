@@ -1,12 +1,11 @@
-package link.rdcn.server
-
 /**
  * @Author Yomi
  * @Description:
  * @Data 2025/9/26 10:52
  * @Modified By:
  */
-import link.rdcn.server.ServerUtilsTest.allocator
+package link.rdcn.server
+
 import link.rdcn.struct.ValueType._
 import link.rdcn.struct._
 import org.apache.arrow.flight.FlightStream.{Cancellable, Requestor}
@@ -28,7 +27,7 @@ object ServerUtilsTest {
 
   @AfterAll
   def tearDown(): Unit = {
-    allocator.close()
+    if (allocator != null) allocator.close()
   }
 }
 
@@ -36,7 +35,7 @@ class ServerUtilsTest {
 
   @BeforeEach
   def setUp(): Unit = {
-    allocator = new RootAllocator(Long.MaxValue)
+    ServerUtilsTest.allocator = new RootAllocator(Long.MaxValue)
   }
 
   @Test
@@ -56,15 +55,15 @@ class ServerUtilsTest {
 
     assertEquals(7, fields.size, "Schema should have 7 fields")
 
-    // 验证 IntType
+    // Verify IntType
     assertEquals(Types.MinorType.INT.getType, fields(0).getType, "Field c1 type should be INT")
     assertTrue(!fields(0).isNullable, "Field c1 should be non-nullable")
 
-    // 验证 DoubleType
+    // Verify DoubleType
     assertTrue(fields(3).getType.isInstanceOf[ArrowType.FloatingPoint], "Field c4 type should be FloatingPoint")
     assertEquals(FloatingPointPrecision.DOUBLE, fields(3).getType.asInstanceOf[ArrowType.FloatingPoint].getPrecision, "Field c4 precision should be DOUBLE")
 
-    // 验证 StringType
+    // Verify StringType
     assertEquals(ArrowType.Utf8.INSTANCE, fields(5).getType, "Field c6 type should be Utf8")
   }
 
@@ -78,11 +77,11 @@ class ServerUtilsTest {
     val arrowSchema = ServerUtils.convertStructTypeToArrowSchema(structType)
     val fields = arrowSchema.getFields.asScala.toList
 
-    // 验证 RefType
+    // Verify RefType
     assertEquals(ArrowType.Utf8.INSTANCE, fields(0).getType, "RefType should be Utf8")
     assertEquals("Url", fields(0).getMetadata.get("logicalType"), "RefType metadata should contain 'Url'")
 
-    // 验证 BlobType
+    // Verify BlobType
     assertEquals(new ArrowType.Binary(), fields(1).getType, "BlobType should be Binary")
     assertEquals("blob", fields(1).getMetadata.get("logicalType"), "BlobType metadata should contain 'blob'")
   }
@@ -127,13 +126,12 @@ class ServerUtilsTest {
       Field.nullable("c1", unsupportedType)
     ))
 
-    // 使用 assertThrows 检查 UnsupportedOperationException
     val exception = assertThrows(
       classOf[UnsupportedOperationException],
       () => ServerUtils.arrowSchemaToStructType(arrowSchema)
     )
 
-    assertEquals(s"Unsupported Arrow type: ${unsupportedType}", exception.getMessage, "exception message should indicate unsupported Arrow type")
+    assertEquals(s"Unsupported Arrow type: ${unsupportedType}", exception.getMessage, "Exception message should indicate unsupported Arrow type")
   }
 
   @Test
@@ -143,27 +141,27 @@ class ServerUtilsTest {
     val row3 = Row("data3")
     val allRows = List(row1, row2, row3)
 
-    val mockStream = new MockFlightStream(allRows, allocator)
+    val mockStream = new MockFlightStream(allRows, ServerUtilsTest.allocator)
     val rowIterator = ServerUtils.flightStreamToRowIterator(mockStream)
 
-    // 覆盖 loadNextBatch() / hasNext 逻辑
+    // Check hasNext logic
     assertTrue(rowIterator.hasNext, "Iterator should have next batch")
 
-    // 覆盖 next() 逻辑
+    // Check next() logic
     val r1 = rowIterator.next()
     assertEquals(row1.values.head, r1.values.head.asInstanceOf[ArrayBuffer[String]].head, "First row content should match")
 
     val r2 = rowIterator.next()
     assertEquals(row2.values.head, r2.values.head.asInstanceOf[ArrayBuffer[String]].head, "Second row content should match")
 
-    // 触发下一批次的 loadNextBatch()
+    // Trigger next batch loading
     val r3 = rowIterator.next()
     assertEquals(row3.values.head, r3.values.head.asInstanceOf[ArrayBuffer[String]].head, "Third row content should match after loading next batch")
 
     assertTrue(!rowIterator.hasNext, "Iterator should be exhausted")
 
-    // 覆盖 next() 抛出 NoSuchElementException
-    val exception = assertThrows(
+    // Expect NoSuchElementException
+    assertThrows(
       classOf[NoSuchElementException],
       () => rowIterator.next()
     )
@@ -179,25 +177,23 @@ class ServerUtilsTest {
 
     val listener = new MockStreamListener()
 
-    // 覆盖 sendDataFrame 中的所有主要流程
-    ServerUtils.sendDataFrame(df, listener, allocator)
+    ServerUtils.sendDataFrame(df, listener, ServerUtilsTest.allocator)
 
-    // 验证核心调用
     assertTrue(listener.onNextCalled, "Listener.onNext should be called")
     assertTrue(listener.onCompletedCalled, "Listener.onCompleted should be called")
     assertTrue(listener.lastResult.length > 0, "Result body should contain encoded Arrow data")
   }
 
+  // --- Local Mocks ---
+
   class MockFlightStream(data: Seq[Row], allocator: BufferAllocator) extends FlightStream(allocator, 0, new Cancellable() {
-    override def cancel(s: String, throwable: Throwable): Unit = ???
+    override def cancel(s: String, throwable: Throwable): Unit = {}
   }, new Requestor() {
-    override def request(i: Int): Unit = ???
+    override def request(i: Int): Unit = {}
   }) {
-    private val batches: Iterator[Seq[Row]] = data.grouped(2) // 每批 2 行
+    private val batches: Iterator[Seq[Row]] = data.grouped(2) // Batch size 2
     private var currentBatch: Seq[Row] = _
     private val testSchema = new Schema(List(Field.nullable("c1", Types.MinorType.VARCHAR.getType)).asJava)
-
-    // 模拟 Arrow Vector 的行为
     private val root = VectorSchemaRoot.create(testSchema, allocator)
     private val vector = root.getVector("c1").asInstanceOf[VarCharVector]
 
@@ -218,10 +214,7 @@ class ServerUtilsTest {
     }
 
     override def getRoot: VectorSchemaRoot = root
-
-    override def close(): Unit = {
-      root.close()
-    }
+    override def close(): Unit = root.close()
   }
 
   class MockStreamListener extends FlightProducer.StreamListener[Result] {

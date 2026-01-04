@@ -144,7 +144,7 @@ class FileDirectoryDataSourceModule extends DftpModule {
     anchor.hook(new EventHandler {
       override def accepts(event: CrossModuleEvent): Boolean =
         event match {
-          case _: CollectDataFrameProviderEvent => true
+//          case _: CollectDataFrameProviderEvent => true
           case _: CollectCatalogServiceEvent => true
           case _ => false
         }

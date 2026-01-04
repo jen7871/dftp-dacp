@@ -6,11 +6,13 @@
  */
 package link.rdcn.server.module
 
-import link.rdcn.operation.SourceOp
+import link.rdcn.operation.{ExecutionContext, SourceOp, TransformOp}
 import link.rdcn.server._
 import link.rdcn.server.exception.{DataFrameAccessDeniedException, DataFrameNotFoundException}
 import link.rdcn.struct.ValueType.StringType
 import link.rdcn.struct._
+import link.rdcn.user.UserPrincipal
+import org.json.JSONObject
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.api.{BeforeEach, Disabled, Test}
@@ -19,19 +21,100 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
+import scala.collection.mutable.ArrayBuffer
 
 class BaseDftpModuleTest {
+
+  // --- Local Mocks ---
+
+  case object MockUser extends UserPrincipal { def getName: String = "MockUser" }
+
+  class MockAnchor extends Anchor {
+    var hookedEventSource: EventSource = _
+    val hookedEventHandlers = new ArrayBuffer[EventHandler]()
+    override def hook(service: EventSource): Unit = hookedEventSource = service
+    override def hook(service: EventHandler): Unit = hookedEventHandlers.append(service)
+  }
+
+  class MockEventHub extends EventHub {
+    val eventsFired = new ArrayBuffer[CrossModuleEvent]()
+    override def fireEvent(event: CrossModuleEvent): Unit = eventsFired.append(event)
+  }
+
+  class MockServerContext extends ServerContext {
+    override def getHost() = "mock-host"
+    override def getPort() = 1234
+    override def getProtocolScheme() = "dftp"
+    override def getDftpHome() = None
+    override def baseUrl = "dftp://mock-host:1234"
+  }
+
+  class MockDataFrameProviderService(dfToReturn: Option[DataFrame], exceptionToThrow: Option[Exception] = None) extends DataFrameProviderService {
+    override def accepts(url: String): Boolean = true
+    override def getDataFrame(url: String, principal: UserPrincipal)(implicit ctx: ServerContext): DataFrame = {
+      if (exceptionToThrow.isDefined) throw exceptionToThrow.get
+      dfToReturn.getOrElse(throw new DataFrameNotFoundException(s"Mock DF $url not found"))
+    }
+  }
+
+  class MockGetStreamHandler(name: String) extends GetStreamMethod {
+    var doGetStreamCalled = false
+    var requestReceived: DftpGetStreamRequest = _
+    override def accepts(request: DftpGetStreamRequest) = true
+    override def doGetStream(request: DftpGetStreamRequest, response: DftpGetStreamResponse): Unit = {
+      doGetStreamCalled = true
+      requestReceived = request
+    }
+  }
+
+  class MockDacpGetBlobStreamRequest(id: String) extends DacpGetBlobStreamRequest {
+    override def getBlobId(): String = id
+    override def getUserPrincipal(): UserPrincipal = MockUser
+  }
+
+  class MockDftpGetPathStreamRequest(op: TransformOp) extends DftpGetPathStreamRequest {
+    override def getRequestPath(): String = op.sourceUrlList.headOption.getOrElse("")
+    override def getRequestURL(): String = getRequestPath()
+    override def getTransformOp(): TransformOp = op
+    override def getUserPrincipal(): UserPrincipal = MockUser
+  }
+
+  class MockDftpGetStreamRequest(name: String) extends DftpGetStreamRequest {
+    override def getUserPrincipal(): UserPrincipal = MockUser
+  }
+
+  class MockDftpGetStreamResponse extends DftpGetStreamResponse {
+    var errorSent = false
+    var errorCode = 0
+    var message = ""
+    var dataFrameSent: DataFrame = _
+    override def sendError(code: Int, msg: String): Unit = {
+      errorSent = true; errorCode = code; message = msg
+      throw new RuntimeException(s"Mocked sendError: $code")
+    }
+    override def sendDataFrame(df: DataFrame): Unit = dataFrameSent = df
+  }
+
+  class MockTransformOp(name: String, dfToReturn: DataFrame) extends TransformOp {
+    var executeCalled = false
+    override def execute(ctx: ExecutionContext): DataFrame = {
+      executeCalled = true
+      dfToReturn
+    }
+    override def operationType = "MockOp"
+    override def toJson = new JSONObject()
+    override var inputs: Seq[TransformOp] = Seq()
+  }
+
+  // --- Tests ---
 
   private var moduleToTest: BaseDftpModule = _
   private var mockAnchor: MockAnchor = _
   private var mockEventHub: MockEventHub = _
   implicit private var mockContext: ServerContext = _
 
-  // Handlers
   private var parserEventHandler: EventHandler = _
   private var streamEventHandler: EventHandler = _
-
-  // Holders
   private var dataFrameHolder: Workers[DataFrameProviderService] = _
 
   @TempDir
@@ -44,39 +127,23 @@ class BaseDftpModuleTest {
     mockEventHub = new MockEventHub()
     mockContext = new MockServerContext()
 
-    // 1. 执行 init()
     moduleToTest.init(mockAnchor, mockContext)
 
-    // 2. 验证 EventSource 和 EventHandlers 被 hook
-    assertNotNull(mockAnchor.hookedEventSource, "init() 应 hook 1 个 EventSource")
-    assertEquals(2, mockAnchor.hookedEventHandlers.length, "init() 应 hook 2 个 EventHandler")
+    assertNotNull(mockAnchor.hookedEventSource, "init() should hook 1 EventSource")
+    assertEquals(2, mockAnchor.hookedEventHandlers.length, "init() should hook 2 EventHandlers")
 
-    // 3. 触发 EventSource 来捕获 dataFrameHolder
     mockAnchor.hookedEventSource.init(mockEventHub)
     val event = mockEventHub.eventsFired.find(_.isInstanceOf[CollectDataFrameProviderEvent]).get
     dataFrameHolder = event.asInstanceOf[CollectDataFrameProviderEvent].holder
-    assertNotNull(dataFrameHolder, "EventSource 未能正确触发 CollectDataFrameProviderEvent")
+    assertNotNull(dataFrameHolder, "EventSource failed to fire CollectDataFrameProviderEvent")
 
-    // 4. 提取两个 EventHandler
-    parserEventHandler = mockAnchor.hookedEventHandlers.find(
-      _.accepts(new CollectParseRequestMethodEvent(null))
-    ).get
-    streamEventHandler = mockAnchor.hookedEventHandlers.find(
-      _.accepts(new CollectGetStreamMethodEvent(null))
-    ).get
+    parserEventHandler = mockAnchor.hookedEventHandlers.find(_.accepts(new CollectParseRequestMethodEvent(null))).get
+    streamEventHandler = mockAnchor.hookedEventHandlers.find(_.accepts(new CollectGetStreamMethodEvent(null))).get
 
-    assertNotNull(parserEventHandler, "未能找到 GetStreamRequestParserEvent 处理器")
-    assertNotNull(streamEventHandler, "未能找到 RequireGetStreamHandlerEvent 处理器")
+    assertNotNull(parserEventHandler, "Failed to find GetStreamRequestParserEvent handler")
+    assertNotNull(streamEventHandler, "Failed to find RequireGetStreamHandlerEvent handler")
   }
 
-  // --- GetStreamRequestParser (Ticket 解析) 测试 ---
-
-  /**
-   * 准备一个 Ticket 字节数组
-   *
-   * @param typeId  1 = BLOB, 2 = URL
-   * @param content 票据内容
-   */
   private def createTicketBytes(typeId: Byte, content: String): Array[Byte] = {
     val jsonBytes = content.getBytes(StandardCharsets.UTF_8)
     val bb = ByteBuffer.allocate(1 + 4 + jsonBytes.length)
@@ -91,17 +158,16 @@ class BaseDftpModuleTest {
     val holder = new Workers[ParseRequestMethod]()
     parserEventHandler.doHandleEvent(new CollectParseRequestMethodEvent(holder))
     val parser = holder.work(runMethod = s => s, onFail = null)
-    assertNotNull(parser, "Parser 未被注入")
+    assertNotNull(parser, "Parser not injected")
 
     val blobId = "my-blob-id-123"
-    val ticketBytes = createTicketBytes(1, blobId) // 1 = BLOB_TICKET
+    val ticketBytes = createTicketBytes(1, blobId)
 
-    assertTrue(parser.accepts(ticketBytes), "Parser 应接受 BLOB_TICKET (1)")
+    assertTrue(parser.accepts(ticketBytes), "Parser should accept BLOB_TICKET (1)")
 
     val request = parser.parse(ticketBytes, MockUser)
-
-    assertTrue(request.isInstanceOf[DftpGetStreamRequest], "应返回 DacpGetBlobStreamRequest")
-    assertEquals(blobId, request.asInstanceOf[DftpGetStreamRequest].getTicket, "解析的 Blob ID 不匹配")
+    assertTrue(request.isInstanceOf[DacpGetBlobStreamRequest], "Should return DacpGetBlobStreamRequest")
+    assertEquals(blobId, request.asInstanceOf[DacpGetBlobStreamRequest].getBlobId(), "Blob ID mismatch")
   }
 
   @Test
@@ -110,21 +176,18 @@ class BaseDftpModuleTest {
     parserEventHandler.doHandleEvent(new CollectParseRequestMethodEvent(holder))
     val parser = holder.work(runMethod = s => s, onFail = null)
 
-    // 2 = URL_GET_TICKET
-    // 使用一个部分路径
     val json = """{"type": "SourceOp", "dataFrameName": "/my/data"}"""
     val ticketBytes = createTicketBytes(2, json)
 
-    assertTrue(parser.accepts(ticketBytes), "Parser 应接受 URL_GET_TICKET (2)")
+    assertTrue(parser.accepts(ticketBytes), "Parser should accept URL_GET_TICKET (2)")
 
     val request = parser.parse(ticketBytes, MockUser)
+    assertTrue(request.isInstanceOf[DftpGetPathStreamRequest], "Should return DftpGetPathStreamRequest")
 
-    assertTrue(request.isInstanceOf[DftpGetStreamRequest], "应返回 DftpGetPathStreamRequest")
-    val pathRequest = request.asInstanceOf[DftpGetStreamRequest]
-
-    // 验证 UrlValidator 的 "Left" 路径 (补全 URL)
+    val pathRequest = request.asInstanceOf[DftpGetPathStreamRequest]
     val expectedUrl = s"${mockContext.baseUrl}/my/data"
-
+    assertEquals("/my/data", pathRequest.getRequestPath(), "getRequestPath() should return partial path")
+    assertEquals(expectedUrl, pathRequest.getRequestURL(), "getRequestURL() should return full URL")
   }
 
   @Test
@@ -133,158 +196,126 @@ class BaseDftpModuleTest {
     parserEventHandler.doHandleEvent(new CollectParseRequestMethodEvent(holder))
     val parser = holder.work(runMethod = s => s, onFail = null)
 
-    // 2 = URL_GET_TICKET
-    // 使用一个完整的 URL
     val fullUrl = "dftp://other-host:8080/data"
     val json = s"""{"type": "SourceOp", "dataFrameName": "$fullUrl"}"""
     val ticketBytes = createTicketBytes(2, json)
 
     val request = parser.parse(ticketBytes, MockUser)
-    val pathRequest = request.asInstanceOf[DftpGetStreamRequest]
+    val pathRequest = request.asInstanceOf[DftpGetPathStreamRequest]
 
-    // 验证 UrlValidator 的 "Right" 路径 (使用原始 URL)
-//    assertEquals("/data", pathRequest.getRequestPath(), "getRequestPath() 应返回 URL 中的路径部分")
-//    assertEquals(fullUrl, pathRequest.getRequestURL(), "getRequestURL() 应返回原始的完整 URL")
+    assertEquals("/data", pathRequest.getRequestPath(), "getRequestPath() should return path part")
+    assertEquals(fullUrl, pathRequest.getRequestURL(), "getRequestURL() should return original URL")
   }
-
-  // --- GetStreamHandler (Stream 处理) 测试 ---
 
   private def getChainedStreamHandler(oldHandler: GetStreamMethod = null): FilteredGetStreamMethods = {
     val holder = new FilteredGetStreamMethods()
-    if (oldHandler != null) {
-      holder.addMethod(oldHandler)
-    }
+    if (oldHandler != null) holder.addMethod(oldHandler)
     streamEventHandler.doHandleEvent(new CollectGetStreamMethodEvent(holder))
     holder
   }
 
   @Test
-  @Disabled("直接使用Blob会被关闭")
+  @Disabled("Directly using Blob gets closed too early in test context")
   def testHandler_DacpGetBlobStreamRequest_HappyPath(): Unit = {
     val blobId = "my-blob"
     val blobData = "Hello Blob".getBytes(StandardCharsets.UTF_8)
 
-    // 1. 准备: 将 Blob 放入 Registry
     val tempFile: Path = tempDirectory.resolve("my-blob-file.txt")
     Files.write(tempFile, blobData)
     val blob = Blob.fromFile(new File(tempFile.toString))
     BlobRegistry.register(blob)
 
-    val request = new MockDftpGetStreamRequest(blobId)
+    val request = new MockDacpGetBlobStreamRequest(blobId)
     val response = new MockDftpGetStreamResponse()
 
-    // 2. 执行
     getChainedStreamHandler().handle(request, response)
 
-    // 3. 验证
-    assertFalse(response.errorSent, "Happy path 不应发送错误")
-    assertNotNull(response.dataFrameSent, "sendDataFrame 应被调用")
-    assertEquals(StructType.blobStreamStructType, response.dataFrameSent.schema, "Blob Stream 的 Schema 不正确")
+    assertFalse(response.errorSent, "Should not send error on happy path")
+    assertNotNull(response.dataFrameSent, "sendDataFrame should be called")
+    assertEquals(StructType.blobStreamStructType, response.dataFrameSent.schema, "Blob schema incorrect")
 
-    // 验证内容
     val rows = response.dataFrameSent.collect()
-    assertEquals(1, rows.length, "Blob Stream 应只有 1 行")
-    assertEquals(blobData, rows.head.getAs[Array[Byte]](0), "Blob 数据不匹配")
+    assertEquals(1, rows.length, "Blob Stream should have 1 row")
+    assertEquals(blobData, rows.head.getAs[Array[Byte]](0), "Blob data mismatch")
   }
 
   @Test
   def testHandler_DacpGetBlobStreamRequest_NotFound(): Unit = {
-    val request = new MockDftpGetStreamRequest("non-existent-id")
+    val request = new MockDacpGetBlobStreamRequest("non-existent-id")
     val response = new MockDftpGetStreamResponse()
 
-    // 执行并验证
-    val ex = assertThrows(classOf[RuntimeException], () => {
+    assertThrows(classOf[RuntimeException], () => {
       getChainedStreamHandler().handle(request, response)
       ()
-    }, "请求不存在的 Blob ID 应抛出异常 (由 sendError 模拟)")
+    }, "Requesting non-existent Blob ID should throw exception (mocked sendError)")
 
-    assertTrue(response.errorSent, "response.sendError(404) 应被调用")
-    assertEquals(404, response.errorCode, "错误码应为 404")
+    assertTrue(response.errorSent, "response.sendError(404) should be called")
+    assertEquals(404, response.errorCode, "Error code should be 404")
   }
 
   @Test
   def testHandler_DftpGetPathStreamRequest_HappyPath(): Unit = {
-
-    // 1. 准备: 注入 DataFrameProvider
     val mockDf = DefaultDataFrame(StructType.empty.add("name", StringType), Seq(Row("Success")).iterator)
-    dataFrameHolder.add(new MockDataFrameProviderServiceForBase(Some(mockDf)))
+    dataFrameHolder.add(new MockDataFrameProviderService(Some(mockDf)))
 
-    // 2. 准备请求
     val mockTree = new MockTransformOp("test-tree", mockDf)
-    val request = new MockDftpGetStreamRequest(mockTree.toJsonString)
+    val request = new MockDftpGetPathStreamRequest(mockTree)
     val response = new MockDftpGetStreamResponse()
 
-    // 3. 执行
     getChainedStreamHandler().handle(request, response)
 
-    // 4. 验证
-    assertTrue(mockTree.executeCalled, "TransformOp.execute 应被调用")
-    assertFalse(response.errorSent, "Happy path 不应发送错误")
-    assertEquals(mockDf, response.dataFrameSent, "response.sendDataFrame 未收到正确的 DataFrame")
+    assertTrue(mockTree.executeCalled, "TransformOp.execute should be called")
+    assertFalse(response.errorSent, "Should not send error")
+    assertEquals(mockDf, response.dataFrameSent, "sendDataFrame called with wrong DataFrame")
   }
 
   @Test
   def testHandler_DftpGetPathStreamRequest_PermissionDenied(): Unit = {
-
-    // 1. 准备: 注入一个会抛出 IllegalAccessException 的 Provider
     val exception = new DataFrameAccessDeniedException("test-tree")
-    dataFrameHolder.add(new MockDataFrameProviderServiceForBase(None, Some(exception)))
+    dataFrameHolder.add(new MockDataFrameProviderService(None, Some(exception)))
 
-    // 2. 准备请求
     val mockTree = new MockTransformOp("test-tree", DefaultDataFrame(StructType.empty, Iterator.empty))
-    val request = new MockDftpGetStreamRequest(mockTree.toJsonString)
+    val request = new MockDftpGetPathStreamRequest(mockTree)
     val response = new MockDftpGetStreamResponse()
 
-    // 3. 执行并验证
-    val ex = assertThrows(classOf[RuntimeException], () => {
+    assertThrows(classOf[RuntimeException], () => {
       getChainedStreamHandler().handle(request, response)
       ()
-    }, "doGetStream 应抛出异常 (由 sendError(403) 模拟)")
+    }, "doGetStream should throw exception (mocked sendError)")
 
-    assertTrue(response.errorSent, "response.sendError(403) 应被调用")
-    assertEquals(403, response.errorCode, "错误码应为 403 (Forbidden)")
-    assertEquals("Access denied to DataFrame test-tree", response.message, "错误消息不匹配")
+    assertTrue(response.errorSent, "response.sendError(403) should be called")
+    assertEquals(403, response.errorCode, "Error code should be 403")
+    assertEquals("Access denied to DataFrame test-tree", response.message, "Error message mismatch")
   }
 
   @Test
   def testHandler_DftpGetPathStreamRequest_NotFound_NoOldHandler(): Unit = {
-    // 1. 准备: 注入一个会抛出 DataFrameNotFoundException 的 Provider
     val exception = new DataFrameNotFoundException("DF Not Found")
-    dataFrameHolder.add(new MockDataFrameProviderServiceForBase(None, Some(exception)))
+    dataFrameHolder.add(new MockDataFrameProviderService(None, Some(exception)))
 
-    // 2. 准备: *不* 注入 'old' 处理器
-
-    // 3. 准备请求
     val mockTree = new MockTransformOp("test-tree", DefaultDataFrame(StructType.empty, Iterator.empty))
-    val request = new MockDftpGetStreamRequest(mockTree.toJsonString)
+    val request = new MockDftpGetPathStreamRequest(mockTree)
     val response = new MockDftpGetStreamResponse()
 
-    // 4. 执行并验证
-    val ex = assertThrows(classOf[RuntimeException], () => {
+    assertThrows(classOf[RuntimeException], () => {
       getChainedStreamHandler().handle(request, response)
       ()
-    }, "doGetStream 应抛出异常 (由 sendError(404) 模拟)")
+    }, "doGetStream should throw exception (mocked sendError)")
 
-    assertTrue(response.errorSent, "response.sendError(404) 应被调用")
-    assertEquals(404, response.errorCode, "错误码应为 404")
+    assertTrue(response.errorSent, "response.sendError(404) should be called")
+    assertEquals(404, response.errorCode, "Error code should be 404")
   }
 
   @Test
   def testHandler_ChainsToOld_OtherRequest(): Unit = {
-    // 1. 准备: 注入 'old' 处理器
     val mockOldHandler = new MockGetStreamHandler("OldHandler")
-
-    // 2. 准备一个 "Other" 请求 (非 Blob, 非 Path)
     val otherRequest = new MockDftpGetStreamRequest("Other")
     val response = new MockDftpGetStreamResponse()
 
-    // 3. 执行
-    getChainedStreamHandler().handle(otherRequest, response)
+    getChainedStreamHandler(mockOldHandler).handle(otherRequest, response)
 
-    // 4. 验证
-    assertTrue(mockOldHandler.doGetStreamCalled, "'old' 处理器应被调用")
-    assertEquals(otherRequest, mockOldHandler.requestReceived, "'old' 处理器收到的请求不匹配")
-    assertFalse(response.errorSent, "不应发送错误")
+    assertTrue(mockOldHandler.doGetStreamCalled, "Old handler should be called")
+    assertEquals(otherRequest, mockOldHandler.requestReceived, "Old handler received wrong request")
+    assertFalse(response.errorSent, "Should not send error")
   }
-
 }

@@ -10,8 +10,9 @@ import org.junit.jupiter.api.Assertions.{assertEquals, assertThrows, assertTrue}
 import org.junit.jupiter.api.Test
 
 import java.io.Serializable
-case class TestData(id: Int, name: String) extends Serializable
 
+// Local test data class
+case class TestData(id: Int, name: String) extends Serializable
 
 class FunctionSerializerTest {
 
@@ -33,21 +34,22 @@ class FunctionSerializerTest {
     assertTrue(originalObject ne deserializedObject, "Deserialized object should be a new instance")
   }
 
-  @Test()
+  @Test
   def testSerializeNotSerializable(): Unit = {
     class NonSerializableClass(val value: Int)
     val nonSerializableObject = new NonSerializableClass(42)
 
-    val exception = assertThrows(
-      classOf[java.lang.ClassCastException], () => FunctionSerializer.serialize(nonSerializableObject.asInstanceOf[Serializable]))
+    assertThrows(classOf[java.lang.ClassCastException], () => {
+      FunctionSerializer.serialize(nonSerializableObject.asInstanceOf[Serializable])
+    })
   }
 
-  @Test()
+  @Test
   def testDeserializeCorruptedData(): Unit = {
     val corruptedBytes = Array[Byte](1, 2, 3, 4, 5)
 
-    val exception = assertThrows(
-      classOf[java.io.StreamCorruptedException], () => FunctionSerializer.deserialize[TestData](corruptedBytes))
-
+    assertThrows(classOf[java.io.StreamCorruptedException], () => {
+      FunctionSerializer.deserialize[TestData](corruptedBytes)
+    })
   }
 }

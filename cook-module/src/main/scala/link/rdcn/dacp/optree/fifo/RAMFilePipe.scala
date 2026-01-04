@@ -5,6 +5,10 @@ import link.rdcn.struct._
 
 import java.io._
 import java.nio.file.{Files, Paths}
+import scala.concurrent.Future
+import scala.concurrent.Future
+import scala.concurrent.ExecutionContext.Implicits.global
+
 
 case class RAMFilePipe(file: File) extends FilePipe(file) {
   val prefix = "/dev/shm"
@@ -16,10 +20,11 @@ case class RAMFilePipe(file: File) extends FilePipe(file) {
       println(s"删除RAM_FILE ${file.getAbsolutePath} 中...")
       Files.deleteIfExists(file.toPath)
     }
-
+//    Runtime.getRuntime.exec(Array("touch", file.getAbsolutePath)).waitFor()
+//    if (file.exists() && !Files.isDirectory(file.toPath)) {
     Runtime.getRuntime.exec(Array("touch", target)).waitFor()
     Runtime.getRuntime.exec(Array("ln", "-sf", target, file.getAbsolutePath)).waitFor()
-
+//    }
   }
 
   def write(messages: Iterator[String]): Unit = {

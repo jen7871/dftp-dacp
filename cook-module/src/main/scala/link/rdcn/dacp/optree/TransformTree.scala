@@ -184,7 +184,7 @@ case class TransformerNode(transformFunctionWrapperT: TransformFunctionWrapper, 
   def release(): Unit = {
     if(transformFunctionWrapper.isInstanceOf[FileRepositoryBundle]){
       transformFunctionWrapper.asInstanceOf[FileRepositoryBundle]
-        .deleteFiFOFile
+        .deleteFile
     }
     inputTransforms.foreach(input => {
       if(input.isInstanceOf[TransformerNode]){
@@ -215,12 +215,11 @@ case class TransformerNode(transformFunctionWrapperT: TransformFunctionWrapper, 
     }
     transformFunctionWrapper match {
       case bundle: FileRepositoryBundle if bundle.outputFilePath.head._2 == FileType.FIFO_BUFFER =>
-        if(flowCtx.isAsyncEnabled(this.transformFunctionWrapperT)) {
           var thread: Thread = null
           val future: Future[DataFrame] = Future {
             try {
               thread = Thread.currentThread()
-              bundle.runOperator()
+              bundle.runOperator(result)
             } catch {
               case t: Throwable =>
                 t.printStackTrace()
@@ -228,8 +227,19 @@ case class TransformerNode(transformFunctionWrapperT: TransformFunctionWrapper, 
             }
           }
           flowCtx.registerAsyncResult(this, future, thread)
-        } else
-          bundle.runOperator()
+      case bundle: FileRepositoryBundle if bundle.outputFilePath.head._2 == FileType.MMAP_FILE =>
+        try {
+          bundle.runOperator(result)
+        } catch {
+          case e: Exception =>
+            e.printStackTrace()
+        } finally {
+          try {
+            this.asInstanceOf[TransformerNode].release()
+          } catch {
+            case e: Exception => e.printStackTrace()
+          }
+        }
       case _ =>
     }
     result

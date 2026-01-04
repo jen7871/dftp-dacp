@@ -4,12 +4,6 @@ import link.rdcn.client.UrlValidator
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.Test
 
-/**
- * @Author renhao
- * @Description:
- * @Date 2025/8/14 15:54
- * @Modified By:
- */
 class DftpUrlValidatorTest {
 
   val urlValidator = UrlValidator("dftp")
@@ -19,21 +13,20 @@ class DftpUrlValidatorTest {
     val result = urlValidator.validate("dftp://0.0.0.0:3101/listDataFrameNames/mydataset")
     result match {
       case Right((host, port, path)) =>
-        assertEquals("0.0.0.0", host)
-        assertEquals(Some(3101), port)
-        assertEquals("/listDataFrameNames/mydataset", path)
-      case Left(err) => fail(s"验证失败: $err")
+        assertEquals("0.0.0.0", host, "Host should match")
+        assertEquals(Some(3101), port, "Port should match")
+        assertEquals("/listDataFrameNames/mydataset", path, "Path should match")
+      case Left(err) => fail(s"Validation failed: $err")
     }
   }
 
-  // 路径前缀验证测试
   @Test
   def testValidateWithPathPrefixSuccess(): Unit = {
     val result = urlValidator.validateWithPathPrefix(
       "dftp://example.com/getDataFrameSize/myframe",
       "/getDataFrameSize/"
     )
-    assertTrue(result.isRight)
+    assertTrue(result.isRight, "Validation should succeed with correct prefix")
   }
 
   @Test
@@ -42,7 +35,7 @@ class DftpUrlValidatorTest {
       "dftp://example.com/wrongPrefix/myframe",
       "/getDataFrameSize/"
     )
-    assertTrue(result.isLeft)
+    assertTrue(result.isLeft, "Validation should fail with wrong prefix")
   }
 
   @Test
@@ -53,10 +46,10 @@ class DftpUrlValidatorTest {
     )
     result match {
       case Right((host, port, param)) =>
-        assertEquals("localhost", host)
-        assertEquals(Some(9090), port)
-        assertEquals("mydataset", param)
-      case Left(err) => fail(s"参数提取失败: $err")
+        assertEquals("localhost", host, "Host match")
+        assertEquals(Some(9090), port, "Port match")
+        assertEquals("mydataset", param, "Param match")
+      case Left(err) => fail(s"Parameter extraction failed: $err")
     }
   }
 
@@ -66,27 +59,25 @@ class DftpUrlValidatorTest {
       "dftp://localhost:9090/listDataFrameNames/",
       "/listDataFrameNames/"
     )
-    assertTrue(result.isLeft)
+    assertTrue(result.isLeft, "Should fail when param is missing")
   }
 
-  // 快速检查测试
   @Test
   def testIsValidPositive(): Unit = {
-    assertTrue(urlValidator.isValid("dftp://example.com:8080"))
+    assertTrue(urlValidator.isValid("dftp://example.com:8080"), "Valid URL should return true")
   }
 
   @Test
   def testIsValidNegative(): Unit = {
-    assertFalse(urlValidator.isValid("dftp://bad:port:abc/path"))
+    assertFalse(urlValidator.isValid("dftp://bad:port:abc/path"), "Invalid URL should return false")
   }
 
-  // 边缘情况测试
   @Test
   def testEmptyPath(): Unit = {
     val result = urlValidator.validate("dftp://example.com")
     result match {
-      case Right((_, _, path)) => assertEquals("/", path)
-      case Left(err) => fail(s"空路径处理失败: $err")
+      case Right((_, _, path)) => assertEquals("/", path, "Empty path should default to '/'")
+      case Left(err) => fail(s"Empty path handling failed: $err")
     }
   }
 }

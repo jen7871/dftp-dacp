@@ -1,10 +1,15 @@
 package link.rdcn.dacp.optree.fifo
 
+import link.rdcn.dacp.optree.TransformerNode
+import link.rdcn.struct.{ClosableIterator, DataFrame, DefaultDataFrame, Row, StructType}
+import link.rdcn.util.DataUtils
 import link.rdcn.struct.ValueType.StringType
 import link.rdcn.struct._
 import link.rdcn.util.DataUtils
 
 import java.io._
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Future
 
 /**
  * @Author renhao

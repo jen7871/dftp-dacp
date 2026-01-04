@@ -14,7 +14,8 @@ import org.json.{JSONArray, JSONObject}
 
 import java.io.{File, StringReader}
 import scala.collection.JavaConverters.{asJavaCollectionConverter, asScalaIteratorConverter}
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable
+import scala.collection.mutable.{ArrayBuffer, Map => MMap}
 
 /**
  * @Author renhao
@@ -130,6 +131,7 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
 
   def cook(recipe: Flow): ExecutionResult = {
     val executePaths: Seq[FlowPath] = recipe.getExecutionPaths()
+    val ops = transformFlowToOperation(executePaths.head)
     val dfs: Seq[DataFrame] = executePaths.map(path => RemoteDataFrameProxy(transformFlowToOperation(path), getCookRows))
     new ExecutionResult() {
       override def single(): DataFrame = dfs.head

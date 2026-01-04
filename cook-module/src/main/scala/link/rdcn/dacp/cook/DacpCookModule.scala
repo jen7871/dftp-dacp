@@ -1,10 +1,8 @@
 package link.rdcn.dacp.cook
 
 import link.rdcn.Logging
-import link.rdcn.client.{DftpClient, UrlValidator}
-import link.rdcn.dacp.cook.JobStatus.{COMPLETE, RUNNING}
+import link.rdcn.client.{DftpClient,UrlValidator}
 import link.rdcn.dacp.optree._
-import link.rdcn.dacp.recipe.ExecutionResult
 import link.rdcn.message.DftpTicket
 import link.rdcn.operation.TransformOp
 import link.rdcn.server._
@@ -12,15 +10,9 @@ import link.rdcn.server.exception.{DataFrameAccessDeniedException, DataFrameNotF
 import link.rdcn.server.module._
 import link.rdcn.struct.{ClosableIterator, DataFrame, DefaultDataFrame, Row}
 import link.rdcn.user.{Credentials, UserPrincipal}
-import link.rdcn.util.CodecUtils
 import org.apache.arrow.flight.Ticket
-import org.json.JSONObject
 
 import java.nio.charset.StandardCharsets
-import java.time.format.DateTimeFormatter
-import java.time.{ZoneId, ZonedDateTime}
-import java.util.concurrent.atomic.AtomicLong
-import scala.collection.concurrent.TrieMap
 
 /**
  * @Author renhao

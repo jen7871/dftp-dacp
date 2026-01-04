@@ -56,7 +56,7 @@ object TransformFunctionWrapper {
         var outputFileType = FileType.FIFO_BUFFER
         val outPutFilePath = jo.getJSONArray("outputFilePath").toList.asScala
           .map(_.asInstanceOf[util.HashMap[String, FileType]])
-          .map{jo =>
+          .map { jo =>
             outputFileType = FileType.fromString(jo.get("fileType").toString)
             (jo.get("filePath").toString, outputFileType)
           }
@@ -392,16 +392,16 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
     jo
   }
 
-  def runOperator(): DataFrame = {
+  def runOperator(outputDataFrame: DataFrame): DataFrame = {
     DockerExecute.nonInteractiveExec(command.toArray, dockerContainer.containerName) //"jyg-container"
     dockerContainer.stop()
     if (outputFilePath.head._2 != FileType.DIRECTORY) {
       //TODO: support outputting multiple DataFrames
-      FileDataFrame(FilePipe.fromFilePath(outputFilePath.head._1, outputFilePath.head._2), outputFilePath.head._2)
+      outputDataFrame
     } else DataStreamSource.filePath(new File(outputFilePath.head._1)).dataFrame
   }
 
-  def deleteFiFOFile(): Unit = {
+  def deleteFile(): Unit = {
     def safeDelete(pathStr: String): Unit = {
       if (pathStr != null && pathStr.nonEmpty) {
         try {
@@ -428,7 +428,7 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
 
   override def applyToDataFrames(inputs: Seq[DataFrame], ctx: FlowExecutionContext): DataFrame = {
     dockerContainer.start()
-    outputFilePath.foreach(path => {
+    val outputFile = outputFilePath.map(path => {
       if (path._2 == FileType.DIRECTORY) {
         val dir = new File(path._1)
         dir.deleteOnExit()
@@ -468,7 +468,7 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
             if (dfAndInput._2._2 == FileType.FIFO_BUFFER) {
               val future = Future {
                 FilePipe.fromFilePath(dfAndInput._2._1, dfAndInput._2._2)
-                  .write(f.mapIterator(iter => Seq(f.schema.columns.map(_.name).mkString(",")).iterator ++ iter.map(row => row.toSeq.mkString(",")) ))
+                  .write(f.mapIterator(iter => Seq(f.schema.columns.map(_.name).mkString(",")).iterator ++ iter.map(row => row.toSeq.mkString(","))))
               }
               future onComplete {
                 case Success(value) => logger.debug(s"load ${dfAndInput._2._1} success")
@@ -476,16 +476,16 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
                   throw e
               }
             } else {
-              FilePipe.fromFilePath(dfAndInput._2._1, dfAndInput._2._2).write(f.mapIterator(iter => iter.map(row => row.toSeq.mkString(","))))
+//            MMAP文件
+              FilePipe.fromFilePath(dfAndInput._2._1, dfAndInput._2._2).write(f.mapIterator(iter => Seq(f.schema.columns.map(_.name).mkString(",")).iterator ++ iter.map(row => row.toSeq.mkString(","))))
             }
           }
       }
     })
     //TODO: support outputting multiple DataFrames
     if (outputFilePath.head._2 == FileType.DIRECTORY) {
-      runOperator()
-      DataStreamSource.filePath(new File(outputFilePath.head._1)).dataFrame
-    } else FileDataFrame(FilePipe.fromFilePath(outputFilePath.head._1, outputFilePath.head._2), outputFilePath.head._2)
+      runOperator(DataStreamSource.filePath(new File(outputFilePath.head._1)).dataFrame)
+    } else FileDataFrame(outputFile.head.asInstanceOf[FilePipe], outputFilePath.head._2)
   }
 
   private def writeBlobToFile(blob: Blob, file: File): Unit = {
