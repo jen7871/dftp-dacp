@@ -1,4 +1,4 @@
-# DFTP (DataFrame Transfer Protocol) & DACP(Data Access and Collaboration Protocol)
+# DFTP (Data Frame Transfer Protocol) & DACP(Data Access and Collaboration Protocol)
 
 A high-performance protocol for dataframe transfer and processing.
 
@@ -6,7 +6,7 @@ A high-performance protocol for dataframe transfer and processing.
 
 ## Overview
 
-**DFTP (DataFrame Transfer Protocol)** is a fundamental data transfer protocol that provides efficient streaming data transfer capabilities, focusing on the delivery of raw data across nodes and processes (such as byte stream transfer and transmission reliability assurance).
+**DFTP (Data Frame Transfer Protocol)** is a fundamental data transfer protocol that provides efficient streaming data transfer capabilities, focusing on the delivery of raw data across nodes and processes (such as byte stream transfer and transmission reliability assurance).
 
 **DACP (Data Access and Collaboration Protocol)** is a protocol designed to support cross-node, cross-process data access in scientific and distributed computing environments. DACP provides standardized streaming-based data interactions over the **Apache Arrow Flight protocol** and defines a unified Streaming DataFrame (SDF) model, which acts as a high-performance abstraction for accessing and processing both structured and unstructured data.
 
@@ -36,7 +36,7 @@ DACP is based on the **Apache Arrow Flight protocol** to achieve standardized st
 
 ## Installation
 
-### DFTP (DataFrame Transfer Protocol)
+### DFTP (Data Frame Transfer Protocol)
 
 Add the following dependencies to your Maven `pom.xml`:
 
