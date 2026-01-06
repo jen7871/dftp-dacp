@@ -8,8 +8,9 @@ import link.rdcn.dacp.recipe.ExecutionResult
 import link.rdcn.operation.TransformOp
 import link.rdcn.server._
 import link.rdcn.server.module._
-import link.rdcn.struct.{Blob, DataFrame, DataFrameMetaData, StructType}
+import link.rdcn.struct.{Blob, DataFrame, DataFrameMetaData, DefaultDataFrame, Row, StructType}
 import link.rdcn.user.{Credentials, UserPrincipal}
+import link.rdcn.util.DataUtils
 import org.json.JSONObject
 
 import java.time.format.DateTimeFormatter
@@ -46,7 +47,7 @@ trait DacpCookStreamRequest extends DftpGetStreamRequest {
   def getTransformTree: TransformOp
 }
 
-class DacpCookModule() extends DftpModule with Logging {
+class DacpCookModule extends DftpModule with Logging {
 
   private implicit var serverContext: ServerContext = _
   private val getMethods = new FilteredGetStreamMethods
@@ -87,8 +88,12 @@ class DacpCookModule() extends DftpModule with Logging {
         val dftpGetStreamResponse = new DftpGetStreamResponse {
           override def sendDataFrame(dataFrame: DataFrame): Unit = result =  Some(dataFrame)
 
-          override def sendBlob(blob: Blob): Unit =
-            response.sendError(500, "Blob does not support the cook operation")
+          override def sendBlob(blob: Blob): Unit = blob.offerStream[DataFrame](inputStream => {
+            val stream: Iterator[Row] = DataUtils.chunkedIterator(inputStream)
+              .map(bytes => Row.fromSeq(Seq(bytes)))
+            val schema = StructType.blobStreamStructType
+            DefaultDataFrame(schema, stream)
+          })
 
           override def sendError(errorCode: Int, message: String): Unit = response.sendError(errorCode, message)
         }

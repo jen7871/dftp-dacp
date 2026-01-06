@@ -123,7 +123,7 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
   def get(url: String): DataFrame =
     RemoteDataFrameProxy(SourceOp(validateUrl(url)), getStream, openDataFrame)
 
-  private def validateUrl(url: String): String = {
+  protected def validateUrl(url: String): String = {
     if (UrlValidator.isPath(url)) url
     else {
       UrlValidator.validate(url) match {
