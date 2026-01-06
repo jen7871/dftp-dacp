@@ -15,14 +15,21 @@ import scala.collection.mutable
 trait DftpRequest {
   val attributes = mutable.Map[String, Any]()
   def getUserPrincipal(): UserPrincipal
-  def getRequestParameters(): JSONObject
+}
+
+trait DftpGetStreamRequest extends DftpRequest {
+  def getRequestPath(): String
+  def getRequestURL(): String
 }
 
 trait DftpActionRequest extends DftpRequest {
   def getActionName(): String
+  def getRequestParameters(): JSONObject
 }
 
-trait DftpPutStreamRequest extends DftpRequest
+trait DftpPutStreamRequest extends DftpRequest {
+  def getRequestParameters(): JSONObject
+}
 
 trait DftpPutDataFrameRequest extends DftpPutStreamRequest {
   def getDataFrame(): DataFrame
@@ -34,6 +41,11 @@ trait DftpPutBlobRequest extends DftpPutStreamRequest {
 
 trait DftpResponse {
   def sendError(errorCode: Int, message: String): Unit
+}
+
+trait DftpGetStreamResponse extends DftpResponse {
+  def sendDataFrame(dataFrame: DataFrame)
+  def sendBlob(blob: Blob)
 }
 
 trait DftpActionResponse extends DftpResponse {

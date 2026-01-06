@@ -119,7 +119,7 @@ trait CatalogService {
         (dfName,
           getStatistics(dfName).rowCount,
           getDataFrameTitle(dfName).getOrElse(null),
-          getDocument(dfName).toJson(dfSchema.getOrElse(DataFrame.empty())).toString,
+          getDocument(dfName).toJson(dfSchema.getOrElse(StructType.empty)).toString,
           schema.toString,
           getStatistics(dfName).toJson().toString,
           URIRef(s"${baseUrl}/$dfName"))

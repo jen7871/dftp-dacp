@@ -212,7 +212,6 @@ class DacpClientDemo {
     val udf = DataFrameCall11(new SerializableFunction[DataFrame, DataFrame] {
       override def apply(v1: DataFrame): DataFrame = v1.limit(5)
     })
-    val base64Str = java.util.Base64.getEncoder.encodeToString(FunctionSerializer.serialize(udf))
 
     val flowJson =
       """

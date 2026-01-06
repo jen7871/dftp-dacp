@@ -60,6 +60,8 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
     }
   }
 
+  def doAction(actionName: String, parameters: JSONObject): ActionResult = doAction(actionName, parameters.toString)
+
   private def mapFlightExceptionToStatusCode(e: Throwable): Int = e match {
     case e: io.grpc.StatusRuntimeException =>
       e.getStatus.getCode match {
@@ -91,6 +93,11 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
   def openDataFrame(url: String): DataFrameHandle = openDataFrame(SourceOp(url))
 
   def getTabular(url: String): DataFrame = get(url)
+
+  def getTabular(dataFrameHandle: DataFrameHandle): DataFrame = {
+    val stream = getStream(dataFrameHandle.getDataFrameTicket)
+    DefaultDataFrame(dataFrameHandle.getDataFrameMeta.getDataFrameSchema, stream)
+  }
 
   def getBlob(url: String): Blob = {
     val df = RemoteDataFrameProxy(SourceOp(validateUrl(url)), getStream, openDataFrame)
@@ -193,7 +200,7 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
     flightClient.close()
   }
 
-  def getStream(ticket: DftpTicket): Iterator[Row] = {
+  protected def getStream(ticket: DftpTicket): Iterator[Row] = {
     val flightStream = flightClient.getStream(DftpTicket.getTicket(ticket))
     val vectorSchemaRootReceived = flightStream.getRoot
     val iter: Iterator[Seq[Any]] = new Iterator[Seq[Seq[Any]]] {
@@ -303,7 +310,9 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
     }
   }
 
-  private case class ActionResult(statusCode: Int, result: String)
+  case class ActionResult(statusCode: Int, result: String) {
+    def getResultJson(): JSONObject = new JSONObject(result)
+  }
 }
 
 

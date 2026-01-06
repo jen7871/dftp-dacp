@@ -9,7 +9,6 @@ import link.rdcn.server.module.{ActionMethod, CollectActionMethodEvent, CollectD
 import link.rdcn.struct.{DataFrame, StructType}
 import link.rdcn.user.UserPrincipal
 import org.apache.jena.rdf.model.{Model, ModelFactory}
-import org.json.JSONObject
 
 import java.io.StringWriter
 
@@ -40,11 +39,11 @@ class DacpCatalogModule extends DftpModule with Logging {
           case r: CollectActionMethodEvent => r.collect(new ActionMethod {
 
             override def accepts(request: DftpActionRequest): Boolean =
-              CatalogActionType.all.contains(request.getActionName())
+              CatalogActionMethodType.exists(request.getActionName())
 
             override def doAction(request: DftpActionRequest, response: DftpActionResponse): Unit = {
               val actionName = request.getActionName()
-              val parameter = request.requestParameters
+              val parameter = request.getRequestParameters()
               catalogServiceHolder.work[Unit](new TaskRunner[CatalogService, Unit] {
                 override def acceptedBy(worker: CatalogService): Boolean =
                   worker.accepts(new CatalogServiceRequest {
@@ -55,37 +54,37 @@ class DacpCatalogModule extends DftpModule with Logging {
 
                 override def executeWith(worker: CatalogService): Unit = {
                   actionName match {
-                    case CatalogActionType.GetDataSetMetaData =>
+                    case CatalogActionMethodType.GET_DATASET_METADATA =>
                       val model: Model = ModelFactory.createDefaultModel
                       worker.getDataSetMetaData(parameter.get("dataSetName").toString, model)
                       val writer = new StringWriter();
                       model.write(writer, "JSON-LD");
                       response.sendJsonString(writer.toString)
-                    case CatalogActionType.GetDataFrameMetaData =>
+                    case CatalogActionMethodType.GET_DATAFRAME_METADATA =>
                       val model: Model = ModelFactory.createDefaultModel
                       worker.getDataFrameMetaData(parameter.get("dataFrameName").toString, model)
                       val writer = new StringWriter();
                       model.write(writer, "JSON-LD");
                       response.sendJsonString(writer.toString)
-                    case CatalogActionType.GetDocument =>
+                    case CatalogActionMethodType.GET_DOCUMENT =>
                       val dataFrameName = parameter.get("dataFrameName").toString
                       val document = worker.getDocument(dataFrameName)
                       val schema = worker.getSchema(dataFrameName)
                       response.sendJsonObject(document.toJson(schema.get))
-                    case CatalogActionType.GetDataFrameInfo =>
+                    case CatalogActionMethodType.GET_DATAFRAME_INFO =>
                       val dataFrameName = parameter.get("dataFrameName").toString
                       val dataFrameTitle = worker.getDataFrameTitle(dataFrameName).getOrElse(dataFrameName)
                       val statistics = worker.getStatistics(dataFrameName)
                       val jo = statistics.toJson()
                       jo.put("title", dataFrameTitle)
                       response.sendJsonObject(jo)
-                    case CatalogActionType.GetSchema =>
+                    case CatalogActionMethodType.GET_SCHEMA =>
                       val dataFrameName = parameter.get("dataFrameName").toString
                       response.sendJsonObject(worker.getSchema(dataFrameName)
                         .getOrElse(StructType.empty)
                         .toJson())
-                    case CatalogActionType.GetHostInfo => response.sendJsonObject(getHostInfo(serverContext))
-                    case CatalogActionType.GetServerInfo => response.sendJsonObject(getSystemInfo())
+                    case CatalogActionMethodType.GET_HOST_INFO => response.sendJsonObject(getHostInfo(serverContext))
+                    case CatalogActionMethodType.GET_SERVER_INFO => response.sendJsonObject(getSystemInfo())
                   }
                 }
                 override def handleFailure(): Unit =

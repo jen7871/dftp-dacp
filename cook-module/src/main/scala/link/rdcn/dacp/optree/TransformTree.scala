@@ -109,16 +109,15 @@ object TransformTree {
     sinkIds.map(recursiveBuild(_)).toSeq
   }
 
-  def fromJsonString(json: String): TransformOp = {
-    val parsed: JSONObject = new JSONObject(json)
+  def fromJsonObject(parsed: JSONObject): TransformOp = {
     val opType = parsed.getString("type")
     if (opType == "SourceOp") {
       SourceOp(parsed.getString("dataFrameName"))
     } else if (opType == "RemoteSourceProxyOp") {
-      RemoteSourceProxyOp(parsed.getString("baseUrl"), fromJsonString(parsed.getString("transformOpString")), parsed.getString("token"))
+      RemoteSourceProxyOp(parsed.getString("baseUrl"), fromJsonObject(parsed.getJSONObject("transformOp")), parsed.getString("token"))
     } else {
       val ja: JSONArray = parsed.getJSONArray("input")
-      val inputs = (0 until ja.length).map(ja.getJSONObject(_).toString()).map(fromJsonString(_))
+      val inputs = (0 until ja.length).map(ja.getJSONObject(_)).map(fromJsonObject(_))
       opType match {
         case "Map" => MapOp(FunctionWrapper(parsed.getJSONObject("function")), inputs: _*)
         case "Filter" => FilterOp(FunctionWrapper(parsed.getJSONObject("function")), inputs: _*)
@@ -129,6 +128,8 @@ object TransformTree {
       }
     }
   }
+
+  def fromJsonString(json: String): TransformOp = fromJsonObject(new JSONObject(json))
 }
 
 case class RemoteSourceProxyOp(baseUrl: String, transformOp: TransformOp, certificate: String) extends TransformOp {
@@ -140,7 +141,7 @@ case class RemoteSourceProxyOp(baseUrl: String, transformOp: TransformOp, certif
   override def operationType: String = "RemoteSourceProxyOp"
 
   override def toJson: JSONObject = new JSONObject().put("type", operationType)
-    .put("baseUrl", baseUrl).put("transformOpString", transformOp.toJsonString).put("token", certificate)
+    .put("baseUrl", baseUrl).put("transformOp", transformOp.toJson).put("token", certificate)
 
   override def execute(ctx: ExecutionContext): DataFrame = {
     require(ctx.isInstanceOf[FlowExecutionContext])
