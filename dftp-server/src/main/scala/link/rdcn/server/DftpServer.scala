@@ -45,6 +45,8 @@ trait ServerContext {
   def getDftpHome(): Option[String]
   def getPublicKeyMap(): Map[String, PublicKey] = Map.empty
   def getPrivateKey: Option[PrivateKey] = None
+  def registry(dataframe: DataFrame): DftpTicket
+  def registry(blob: Blob): DftpTicket
   def baseUrl: String = s"${getProtocolScheme()}://${getHost()}:${getPort()}"
 }
 
@@ -55,6 +57,7 @@ class DftpServer(config: DftpServerConfig) extends Logging {
   } else {
     Location.forGrpcInsecure(config.host, config.port)
   }
+  private val uriPool = new URIReferencePool
 
   private val kernelModule = new KernelModule()
   protected val modules = new Modules(new ServerContext() {
@@ -70,6 +73,10 @@ class DftpServer(config: DftpServerConfig) extends Logging {
     override def getPublicKeyMap(): Map[String, PublicKey] = config.pubKeyMap
 
     override def getPrivateKey: Option[PrivateKey] = config.privateKey
+
+    override def registry(dataframe: DataFrame): DftpTicket = uriPool.registryDataFrame(dataframe)
+
+    override def registry(blob: Blob): DftpTicket = uriPool.registryBlob(blob)
   })
 
   private val authenticatedUserMap = new ConcurrentHashMap[String, UserPrincipal]()
@@ -79,7 +86,6 @@ class DftpServer(config: DftpServerConfig) extends Logging {
   @volatile private var serverThread: Thread = _
   @volatile private var started: Boolean = false
 
-  private val uriPool = new URIReferencePool
   private val putDataFrameParametersCache = TrieMap[String, JSONObject]()
   private val putBlobParametersCache = TrieMap[String, JSONObject]()
 
@@ -202,7 +208,7 @@ class DftpServer(config: DftpServerConfig) extends Logging {
         override def attachStream(dataframeResponse: DataFrameResponse): Unit = {
           val responseJsonObject = new JSONObject()
           val dataframe = dataframeResponse.getDataFrame
-          val dftpTicket: DftpTicket = uriPool.registry(dataframe)
+          val dftpTicket: DftpTicket = uriPool.registryDataFrame(dataframe)
           responseJsonObject
             .put("dataframeMetaData", dataframeResponse.getDataFrameMetaData.toJson())
             .put("ticket", dftpTicket)
@@ -210,7 +216,7 @@ class DftpServer(config: DftpServerConfig) extends Logging {
         }
 
         override def attachStream(blobResponse: BlobResponse): Unit = {
-          val dftpTicket: DftpTicket = uriPool.registry(blobResponse.getBlob)
+          val dftpTicket: DftpTicket = uriPool.registryBlob(blobResponse.getBlob)
           sendJsonObject(new JSONObject().put("ticket", dftpTicket), 304)
         }
 
@@ -484,14 +490,14 @@ class DftpServer(config: DftpServerConfig) extends Logging {
     private val dataFrameCache = TrieMap[String, DataFrame]()
     private val ticketExpiryDateCache = TrieMap[String, Long]()
 
-    def registry(dataFrame: DataFrame, expiryDate: Long = -1L): DftpTicket = {
+    def registryDataFrame(dataFrame: DataFrame, expiryDate: Long = -1L): DftpTicket = {
       val dataFrameId = UUID.randomUUID().toString
       dataFrameCache.put(dataFrameId, dataFrame)
       ticketExpiryDateCache.put(dataFrameId, expiryDate)
       dataFrameId
     }
 
-    def registry(blob: Blob, expiryDate: Long = -1L): DftpTicket = {
+    def registryBlob(blob: Blob, expiryDate: Long = -1L): DftpTicket = {
       val blobId = UUID.randomUUID().toString
       val dataFrame = blob.offerStream[DataFrame](inputStream => {
         val stream: Iterator[Row] = DataUtils.chunkedIterator(inputStream)

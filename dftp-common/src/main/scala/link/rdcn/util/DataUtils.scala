@@ -271,9 +271,9 @@ object DataUtils extends Logging{
     }
   }
 
-  def convertIteratorToInputStream(iterator: Iterator[Array[Byte]]) = new IteratorInputStream(iterator)
+  def convertIteratorToInputStream(iterator: Iterator[Array[Byte]]): IteratorInputStream = new IteratorInputStream(iterator)
 
-  private class IteratorInputStream(iterator: Iterator[Array[Byte]]) extends InputStream {
+  class IteratorInputStream(iterator: Iterator[Array[Byte]]) extends InputStream {
     private var currentChunk: Array[Byte] = Array.emptyByteArray
     private var index: Int = 0
 

@@ -13,19 +13,14 @@ import link.rdcn.user.Credentials
  */
 class DacpClientProxy private(host: String, port: Int, useTLS: Boolean = false) extends DacpClient(host, port, useTLS) {
   def getTargetServerUrl: String = {
-    new String(doAction("/getTargetServerUrl"), "UTF-8")
+    doAction("/getTargetServerUrl").result
   }
 
-
-
-  override def get(url: String): DataFrame = {
-    if (UrlValidator.isPath(url)) {
-      RemoteDataFrameProxy(SourceOp(url), getRows)
-    } else {
+  override def validateUrl(url: String): String = {
+    if (UrlValidator.isPath(url)) url
+    else {
       UrlValidator.validate(url) match {
-        case Right((prefixSchema, host, port, path)) => {
-          RemoteDataFrameProxy(SourceOp(url), getRows)
-        }
+        case Right(v) => url
         case Left(message) => throw new IllegalArgumentException(message)
       }
     }
