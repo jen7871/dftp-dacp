@@ -29,7 +29,7 @@ class DacpCatalogModule extends DftpModule with Logging {
       override def accepts(event: CrossModuleEvent): Boolean = {
         event match {
           case _: CollectActionMethodEvent => true
-          case _: CollectDataFrameProviderEvent => true
+          case _: CollectGetStreamMethodEvent => true
           case _ => false
         }
       }
@@ -49,7 +49,7 @@ class DacpCatalogModule extends DftpModule with Logging {
                   worker.accepts(new CatalogServiceRequest {
                     override def getDataSetId: String = parameter.optString("dataSetName", null)
 
-                    override def getDataFrameUrl: String = parameter.optString("dataFrameName", null)
+                    override def getDataFrameURL: String = parameter.optString("dataFrameName", null)
                   })
 
                 override def executeWith(worker: CatalogService): Unit = {
@@ -92,37 +92,40 @@ class DacpCatalogModule extends DftpModule with Logging {
               })
             }
           })
-
-          case r: CollectDataFrameProviderEvent =>
-            r.holder.add(
-              new DataFrameProviderService {
-                override def accepts(dataFrameUrl: String): Boolean =
-                  UrlValidator.extractPath(dataFrameUrl) match {
-                    case "/listDataSets" => true
-                    case path if path.startsWith("/dataset") => true
-                    case _ => false
-                  }
-
-                override def getDataFrame(dataFrameUrl: String, userPrincipal: UserPrincipal)
-                                         (implicit ctx: ServerContext): DataFrame = {
-                  catalogServiceHolder.work(new TaskRunner[CatalogService, DataFrame] {
-
-                    override def acceptedBy(worker: CatalogService): Boolean = true
-
-                    override def executeWith(worker: CatalogService): DataFrame = {
-                      UrlValidator.extractPath(dataFrameUrl) match {
-                        case "/listDataSets" => worker.doListDataSets(serverContext.baseUrl)
-                        case path if path.startsWith("/dataset") =>
-                           worker.doListDataFrames(path, serverContext.baseUrl)
-                      }
-                    }
-
-                    override def handleFailure(): DataFrame = throw new DataFrameNotFoundException(dataFrameUrl)
-                  })
+          case r: CollectGetStreamMethodEvent =>
+            r.collect(new GetStreamMethod {
+              override def accepts(request: DftpGetStreamRequest): Boolean = {
+                request.getRequestPath() match {
+                  case "/listDataSets" => true
+                  case path if path.startsWith("/dataset") => true
+                  case _ => false
                 }
               }
-            )
 
+              override def doGetStream(request: DftpGetStreamRequest, response: DftpGetStreamResponse): Unit = {
+                val catalogServiceRequest = new CatalogServiceRequest {
+                  override def getDataSetId: String = null
+
+                  override def getDataFrameURL: String = request.getRequestURL()
+                }
+
+                val dataFrame = catalogServiceHolder.work(new TaskRunner[CatalogService, DataFrame] {
+
+                  override def acceptedBy(worker: CatalogService): Boolean = worker.accepts(catalogServiceRequest)
+
+                  override def executeWith(worker: CatalogService): DataFrame = {
+                    request.getRequestPath() match {
+                      case "/listDataSets" => worker.doListDataSets(serverContext.baseUrl)
+                      case path if path.startsWith("/dataset") =>
+                        worker.doListDataFrames(path, serverContext.baseUrl)
+                    }
+                  }
+
+                  override def handleFailure(): DataFrame = throw new DataFrameNotFoundException(request.getRequestURL())
+                })
+                response.sendDataFrame(dataFrame)
+              }
+            })
           case _ =>
         }
       }
