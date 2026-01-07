@@ -1,18 +1,22 @@
 package link.rdcn.dacp.cook
 
 import link.rdcn.Logging
-import link.rdcn.client.{DftpClient,UrlValidator}
+import link.rdcn.client.{DftpClient, UrlValidator}
+import link.rdcn.dacp.cook.JobStatus.{COMPLETE, RUNNING}
 import link.rdcn.dacp.optree._
-import link.rdcn.message.DftpTicket
+import link.rdcn.dacp.recipe.ExecutionResult
 import link.rdcn.operation.TransformOp
 import link.rdcn.server._
-import link.rdcn.server.exception.{DataFrameAccessDeniedException, DataFrameNotFoundException}
 import link.rdcn.server.module._
-import link.rdcn.struct.{ClosableIterator, DataFrame, DefaultDataFrame, Row}
+import link.rdcn.struct.{Blob, DataFrame, DataFrameMetaData, DefaultDataFrame, Row, StructType}
 import link.rdcn.user.{Credentials, UserPrincipal}
-import org.apache.arrow.flight.Ticket
+import link.rdcn.util.DataUtils
+import org.json.JSONObject
 
-import java.nio.charset.StandardCharsets
+import java.time.format.DateTimeFormatter
+import java.time.{ZoneId, ZonedDateTime}
+import java.util.concurrent.atomic.AtomicLong
+import scala.collection.concurrent.TrieMap
 
 /**
  * @Author renhao
@@ -20,19 +24,33 @@ import java.nio.charset.StandardCharsets
  * @Data 2025/10/31 10:59
  * @Modified By:
  */
-trait DacpJobStreamRequest extends DftpGetStreamRequest {
-  def getJobId: String
-  def getDataFrameName: String
+object CookActionMethodType {
+  final val SUBMIT_FLOW = "SUBMIT_FLOW"
+  final val SUBMIT_RECIPE = "SUBMIT_RECIPE"
+  final val GET_JOB_STATUS = "GET_JOB_STATUS"
+  final val GET_JOB_EXECUTE_RESULT = "GET_JOB_EXECUTE_RESULT"
+  final val GET_JOB_EXECUTE_PROCESS = "GET_JOB_EXECUTE_PROCESS"
+
+  private final val ALL: Set[String] = Set(
+    SUBMIT_FLOW,
+    SUBMIT_RECIPE,
+    GET_JOB_STATUS,
+    GET_JOB_EXECUTE_RESULT,
+    GET_JOB_EXECUTE_PROCESS
+  )
+
+  def exists(action: String): Boolean =
+    ALL.contains(action)
 }
 
 trait DacpCookStreamRequest extends DftpGetStreamRequest {
   def getTransformTree: TransformOp
 }
 
-class DacpCookModule() extends DftpModule with Logging {
+class DacpCookModule extends DftpModule with Logging {
 
   private implicit var serverContext: ServerContext = _
-  private val dataFrameHolder = new Workers[DataFrameProviderService]
+  private val getMethods = new FilteredGetStreamMethods
 
   private val formatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
   private val recipeCounter = new AtomicLong(0L)
@@ -42,7 +60,7 @@ class DacpCookModule() extends DftpModule with Logging {
   override def init(anchor: Anchor, serverContext: ServerContext): Unit = {
     this.serverContext = serverContext
 
-    def flowExecutionContext(userPrincipal: UserPrincipal): FlowExecutionContext = new FlowExecutionContext {
+    def flowExecutionContext(userPrincipal: UserPrincipal, response: DftpResponse): FlowExecutionContext = new FlowExecutionContext {
 
       override def fairdHome: String = serverContext.getDftpHome().getOrElse("./")
 
@@ -58,15 +76,29 @@ class DacpCookModule() extends DftpModule with Logging {
       }
 
       override def loadSourceDataFrame(dataFrameNameUrl: String): Option[DataFrame] = {
-        Some(dataFrameHolder.work(new TaskRunner[DataFrameProviderService, DataFrame]() {
+        var result: Option[DataFrame] = None
+        val dftpGetStreamRequest = new DftpGetStreamRequest {
+          override def getRequestPath(): String = UrlValidator.extractPath(dataFrameNameUrl)
 
-          override def acceptedBy(worker: DataFrameProviderService): Boolean = worker.accepts(dataFrameNameUrl)
+          override def getRequestURL(): String = serverContext.baseUrl + getRequestPath()
 
-          override def executeWith(worker: DataFrameProviderService): DataFrame = worker.getDataFrame(dataFrameNameUrl, userPrincipal)(serverContext)
-
-          override def handleFailure(): DataFrame = throw new DataFrameNotFoundException(dataFrameNameUrl)
+          override def getUserPrincipal(): UserPrincipal = userPrincipal
         }
-        ))
+
+        val dftpGetStreamResponse = new DftpGetStreamResponse {
+          override def sendDataFrame(dataFrame: DataFrame): Unit = result =  Some(dataFrame)
+
+          override def sendBlob(blob: Blob): Unit = blob.offerStream[DataFrame](inputStream => {
+            val stream: Iterator[Row] = DataUtils.chunkedIterator(inputStream)
+              .map(bytes => Row.fromSeq(Seq(bytes)))
+            val schema = StructType.blobStreamStructType
+            DefaultDataFrame(schema, stream)
+          })
+
+          override def sendError(errorCode: Int, message: String): Unit = response.sendError(errorCode, message)
+        }
+        getMethods.handle(dftpGetStreamRequest, dftpGetStreamResponse)
+        result
       }
 
       //TODO Repository config
@@ -77,25 +109,20 @@ class DacpCookModule() extends DftpModule with Logging {
           .getOrElse(throw new IllegalArgumentException(s"Invalid URL format $baseUrl"))
         val client = new Client(urlInfo._2, urlInfo._3)
         client.login(credentials)
-        Some(client.getRemoteDataFrame(transformOp.toJsonString))
+        Some(client.getRemoteDataFrame(transformOp))
       }
 
       private class Client(host: String, port: Int, useTLS: Boolean = false) extends DftpClient(host, port, useTLS) {
-        def getRemoteDataFrame(transformOpStr: String): DataFrame = {
-          val schemaAndIter = getStream(new Ticket(CookTicket(transformOpStr).encodeTicket()))
-          val stream = schemaAndIter._2.map(seq => Row.fromSeq(seq))
-          DefaultDataFrame(schemaAndIter._1, stream)
+        def getRemoteDataFrame(transformOp: TransformOp): DataFrame = {
+          val dataFrameHandle = openDataFrame(transformOp)
+          getTabular(dataFrameHandle)
         }
-      }
-      private case class CookTicket(ticketContent: String) extends DftpTicket {
-        override val typeId: Byte = 3
       }
     }
 
     anchor.hook(new EventHandler {
       override def accepts(event: CrossModuleEvent): Boolean = {
         event match {
-          case r: CollectParseRequestMethodEvent => true
           case r: CollectGetStreamMethodEvent => true
           case r: CollectActionMethodEvent => true
           case _ => false
@@ -108,23 +135,16 @@ class DacpCookModule() extends DftpModule with Logging {
             r.collect(new ActionMethod {
 
               override def accepts(request: DftpActionRequest): Boolean = {
-                request.getActionName() match {
-                  case "submit" => true
-                  case "getJobStatus" => true
-                  case "getJobExecuteResult" => true
-                  case "getJobExecuteProcess" => true
-                  case _ => false
-                }
+                CookActionMethodType.exists(request.getActionName())
               }
 
               override def doAction(request: DftpActionRequest, response: DftpActionResponse): Unit = {
-                val paramsMap = request.getParameterAsMap()
+                val paramsJsonObject = request.getRequestParameters()
                 request.getActionName() match {
-                  case "submit" =>
+                  case CookActionMethodType.SUBMIT_FLOW =>
                     val jobId = getRecipeId()
-                    val flowJson = paramsMap.getOrElse("flowJson", response.sendError(400, "flow json empty"))
-                    val transformOps: Seq[TransformOp] = TransformTree.fromFlowdJsonString(flowJson.toString)
-                    val ctx = flowExecutionContext(request.getUserPrincipal())
+                    val transformOps: Seq[TransformOp] = TransformTree.fromFlowdJsonString(paramsJsonObject.toString)
+                    val ctx = flowExecutionContext(request.getUserPrincipal(), response)
                     val dfs = transformOps.map(_.execute(ctx))
                     val executeResult = new ExecutionResult {
                       override def single(): DataFrame = dfs.head
@@ -137,132 +157,67 @@ class DacpCookModule() extends DftpModule with Logging {
                     }
                     jobResultCache.put(jobId, executeResult)
                     jobTransformOpsCache.put(jobId, transformOps)
-                    response.sendData(CodecUtils.encodeString(jobId))
-                  case "getJobStatus" =>
-                    val jobId = paramsMap.getOrElse("jobId", response.sendError(400, "empty request require jobId"))
-                    val executionResult = jobResultCache.get(jobId.toString)
+                    response.sendJsonObject(new JSONObject().put("jobId", jobId))
+                  case CookActionMethodType.SUBMIT_RECIPE =>
+                    val transformOp = TransformTree.fromJsonObject(paramsJsonObject)
+                    val dataframe = transformOp.execute(flowExecutionContext(request.getUserPrincipal(), response))
+                    val dataFrameResponse = new DataFrameResponse {
+                      override def getDataFrameMetaData: DataFrameMetaData = new DataFrameMetaData {
+                        override def getDataFrameSchema: StructType = dataframe.schema
+                      }
+
+                      override def getDataFrame: DataFrame = dataframe
+                    }
+                    response.attachStream(dataFrameResponse)
+                  case CookActionMethodType.GET_JOB_STATUS =>
+                    val jobId = paramsJsonObject.optString("jobId", null)
+                    if (jobId == null) {
+                      response.sendError(400, "empty request require jobId")
+                    }
+                    val executionResult = jobResultCache.get(jobId)
                     if(executionResult.nonEmpty){
                       val df = executionResult.get.map().values.toList.find(df => df.mapIterator(_.hasNext))
-                      if(df.nonEmpty) response.sendData(CodecUtils.encodeString(RUNNING.name))
-                      else response.sendData(CodecUtils.encodeString(COMPLETE.name))
+                      if(df.nonEmpty) response.sendJsonObject(new JSONObject().put("status", RUNNING.name))
+                      else response.sendJsonObject(new JSONObject().put("status", COMPLETE.name))
                     }else response.sendError(404, s"job $jobId not exist")
-                  case "getJobExecuteResult" =>
-                    val jobId = paramsMap.getOrElse("jobId", response.sendError(400, "empty request require jobId"))
-                    val executionResult = jobResultCache.get(jobId.toString)
+                  case CookActionMethodType.GET_JOB_EXECUTE_RESULT =>
+                    val jobId = paramsJsonObject.optString("jobId", null)
+                    if (jobId == null) {
+                      response.sendError(400, "empty request require jobId")
+                    }
+                    val executionResult = jobResultCache.get(jobId)
                     if(executionResult.isEmpty) response.sendError(404, s"job $jobId not exist")
-                    else response.sendData(executionResult.get.map().keys.toList.map((_, jobId)).toMap)
-                  case "getJobExecuteProcess" =>
-                    val jobId = paramsMap.getOrElse("jobId", response.sendError(400, "empty request require jobId"))
-                    val transformOps = jobTransformOpsCache.get(jobId.toString)
+                    else {
+                      val jo = new JSONObject()
+                      executionResult.get.map().foreach(kv => {
+                        val dataFrameJson = new JSONObject()
+                        dataFrameJson.put("dataframeMetaData", new DataFrameMetaData {
+                            override def getDataFrameSchema: StructType = kv._2.schema
+                          }.toJson())
+                        dataFrameJson.put("ticket", serverContext.registry(kv._2))
+                        jo.put(kv._1, dataFrameJson)
+                      })
+                      response.sendJsonObject(jo)
+                    }
+                  case CookActionMethodType.GET_JOB_EXECUTE_PROCESS =>
+                    val jobId = paramsJsonObject.optString("jobId", null)
+                    if (jobId == null) {
+                      response.sendError(400, "empty request require jobId")
+                    }
+                    val transformOps = jobTransformOpsCache.get(jobId)
                     if(transformOps.isEmpty) response.sendError(404, s"job $jobId not exist")
                     else{
                       val processSeq: Seq[Double] = transformOps.get.map(_.executionProgress).filter(_.nonEmpty).map(_.get)
                       if(processSeq.isEmpty) response.sendError(400, s"Unable to calculate ${transformOps.mkString(",")} progress")
                       else {
                         val process = processSeq.sum/processSeq.length
-                        response.sendData(CodecUtils.encodeString(process.toString))
+                        response.sendJsonObject(new JSONObject().put("process", process))
                       }
                     }
                   case _ => response.sendError(400, "")
                 }
               }
             })
-
-          case r: CollectParseRequestMethodEvent => r.collect(
-            new ParseRequestMethod() {
-              val COOK_TICKET: Byte = 3
-              val JOB_TICKET: Byte = 4
-
-              override def accepts(token: Array[Byte]): Boolean = {
-                val typeId = token(0)
-                typeId match {
-                  case COOK_TICKET => true
-                  case JOB_TICKET => true
-                  case _ => false
-                }
-              }
-
-              override def parse(bytes: Array[Byte], principal: UserPrincipal): DftpGetStreamRequest = {
-                val buffer = java.nio.ByteBuffer.wrap(bytes)
-                val typeId: Byte = buffer.get()
-                val len = buffer.getInt()
-                val b = new Array[Byte](len)
-                buffer.get(b)
-                val ticketContent = new String(b, StandardCharsets.UTF_8)
-
-                typeId match {
-                  case JOB_TICKET =>
-                    val jo = new JSONObject(ticketContent)
-                    new DacpJobStreamRequest {
-                      override def getJobId: String = jo.getString("jobId")
-
-                      override def getDataFrameName: String = jo.getString("dataFrameName")
-
-                      override def getUserPrincipal(): UserPrincipal = principal
-                    }
-
-                  case COOK_TICKET =>
-                    val transformOp = TransformTree.fromJsonString(ticketContent)
-                    new DacpCookStreamRequest {
-                      override def getUserPrincipal(): UserPrincipal = principal
-
-                      override def getTransformTree: TransformOp = transformOp
-                    }
-                }
-              }
-            })
-
-          case r: CollectGetStreamMethodEvent =>
-            r.collect(
-              new GetStreamMethod() {
-
-                override def accepts(request: DftpGetStreamRequest): Boolean = {
-                  request match {
-                    case _: DacpCookStreamRequest => true
-                    case _: DacpJobStreamRequest => true
-                    case _ => false
-                  }
-                }
-
-                override def doGetStream(request: DftpGetStreamRequest, response: DftpGetStreamResponse): Unit = {
-                  request match {
-                    case request: DacpCookStreamRequest => {
-                      val transformTree = request.getTransformTree
-                      val userPrincipal = request.getUserPrincipal()
-                      try {
-                        val result = transformTree.execute(flowExecutionContext(userPrincipal))
-                        response.sendDataFrame(result)
-                      } catch {
-                        case e: DataFrameAccessDeniedException => response.sendError(403, e.getMessage)
-                          throw e
-                        case e: DataFrameNotFoundException => response.sendError(404, e.getMessage)
-                          throw e
-                        case e: Exception => response.sendError(500, e.getMessage)
-                          throw e
-                      }
-                    }
-                    case r: DacpJobStreamRequest =>
-                      try{
-                        val jobId = r.getJobId
-                        val executionResult = jobResultCache.get(r.getJobId)
-                        if(executionResult.isEmpty) response.sendError(404, s"job $jobId not exist")
-                        else {
-                          val df = executionResult.get.map().get(r.getDataFrameName)
-                          if(df.isEmpty) response.sendError(404, s"not found dataFrame ${r.getDataFrameName} in job $jobId")
-                          response.sendDataFrame(df.get)
-                        }
-                      }catch {
-                        case e: DataFrameAccessDeniedException => response.sendError(403, e.getMessage)
-                          throw e
-                        case e: DataFrameNotFoundException => response.sendError(404, e.getMessage)
-                          throw e
-                        //TODO Add status code on the client
-                        case e: Exception => response.sendError(500, e.getMessage)
-                      }
-                  }
-                }
-              })
-
           case _ =>
         }
       }
@@ -270,7 +225,7 @@ class DacpCookModule() extends DftpModule with Logging {
 
     anchor.hook(new EventSource {
       override def init(eventHub: EventHub): Unit = {
-        eventHub.fireEvent(CollectDataFrameProviderEvent(dataFrameHolder))
+        eventHub.fireEvent(CollectGetStreamMethodEvent(getMethods))
       }
     })
   }

@@ -1,28 +1,14 @@
 package link.rdcn.server.module
 
+import link.rdcn.server._
 import link.rdcn.server.exception.{UnknownCredentialsException, UnknownGetStreamRequestException}
-import link.rdcn.server.{DftpGetStreamRequest, _}
 import link.rdcn.user.{AuthenticationMethod, Credentials, UserPrincipal}
 
 class KernelModule extends DftpModule {
   private val authMethods = new Workers[AuthenticationMethod]
-  private val parseMethods = new Workers[ParseRequestMethod]
   private val getMethods = new FilteredGetStreamMethods
   private val actionMethods = new Workers[ActionMethod]
   private val putMethods = new Workers[PutStreamMethod]
-
-  def parseGetStreamRequest(token: Array[Byte], principal: UserPrincipal): DftpGetStreamRequest = {
-    parseMethods.work(new TaskRunner[ParseRequestMethod, DftpGetStreamRequest] {
-
-      override def acceptedBy(worker: ParseRequestMethod): Boolean = worker.accepts(token)
-
-      override def executeWith(worker: ParseRequestMethod): DftpGetStreamRequest = worker.parse(token, principal)
-
-      override def handleFailure(): DftpGetStreamRequest = {
-        throw new UnknownGetStreamRequestException(token)
-      }
-    })
-  }
 
   def getStream(request: DftpGetStreamRequest, response: DftpGetStreamResponse): Unit = {
     getMethods.handle(request, response)
@@ -49,7 +35,7 @@ class KernelModule extends DftpModule {
       override def executeWith(worker: ActionMethod): Unit = worker.doAction(request, response)
 
       override def handleFailure(): Unit = {
-        response.sendError(404, s"unknown action: ${request.getJsonStringRequest()}")
+        response.sendError(404, s"unknown action: ${request.getRequestParameters().toString}")
       }
     })
   }
@@ -71,7 +57,6 @@ class KernelModule extends DftpModule {
     anchor.hook(new EventSource {
       override def init(eventHub: EventHub): Unit = {
         eventHub.fireEvent(CollectAuthenticationMethodEvent(authMethods))
-        eventHub.fireEvent(CollectParseRequestMethodEvent(parseMethods))
         eventHub.fireEvent(CollectActionMethodEvent(actionMethods))
         eventHub.fireEvent(CollectPutStreamMethodEvent(putMethods))
         eventHub.fireEvent(CollectGetStreamMethodEvent(getMethods))
@@ -85,11 +70,6 @@ class KernelModule extends DftpModule {
 trait ActionMethod {
   def accepts(request: DftpActionRequest): Boolean
   def doAction(request: DftpActionRequest, response: DftpActionResponse): Unit
-}
-
-trait ParseRequestMethod {
-  def accepts(token: Array[Byte]): Boolean
-  def parse(token: Array[Byte], principal: UserPrincipal): DftpGetStreamRequest
 }
 
 trait AccessLogger {
@@ -108,10 +88,6 @@ trait PutStreamMethod {
 }
 
 case class CollectAuthenticationMethodEvent(collector: Workers[AuthenticationMethod]) extends CrossModuleEvent {
-  def collect = collector.add(_)
-}
-
-case class CollectParseRequestMethodEvent(collector: Workers[ParseRequestMethod]) extends CrossModuleEvent {
   def collect = collector.add(_)
 }
 

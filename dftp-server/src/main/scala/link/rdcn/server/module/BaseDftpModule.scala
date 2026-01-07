@@ -1,17 +1,16 @@
 package link.rdcn.server.module
 
-import link.rdcn.{Logging, server}
+import link.rdcn.Logging
+import link.rdcn.client.UrlValidator
 import link.rdcn.message.ActionMethodType
 import link.rdcn.operation.{ExecutionContext, TransformOp}
 import link.rdcn.server._
-import link.rdcn.server.exception.{DataFrameNotFoundException, TicketExpiryException, TicketNotFoundException}
-import link.rdcn.struct.{DataFrame, DataFrameMetaData, StructType}
+import link.rdcn.struct.{Blob, DataFrame, DataFrameMetaData, StructType}
 import link.rdcn.user.UserPrincipal
 
 class BaseDftpModule extends DftpModule with Logging{
 
-  //TODO: should all data frame providers be registered?
-  private val dataFrameHolder = new Workers[DataFrameProviderService]
+  private val getMethods = new FilteredGetStreamMethods
   private implicit var serverContext: ServerContext = _
   private val dftpBaseEventHandler = new EventHandler {
 
@@ -38,16 +37,29 @@ class BaseDftpModule extends DftpModule with Logging{
                 case ActionMethodType.GET =>
                   val requestJsonObject = request.getRequestParameters()
                   val transformOp: TransformOp = TransformOp.fromJsonObject(requestJsonObject)
+
                   val dataFrame = transformOp.execute(new ExecutionContext {
                     override def loadSourceDataFrame(dataFrameNameUrl: String): Option[DataFrame] = {
-                      Some(dataFrameHolder.work(new TaskRunner[DataFrameProviderService, DataFrame] {
+                      var result: Option[DataFrame] = None
+                      val dftpGetStreamRequest = new DftpGetStreamRequest {
+                        override def getRequestPath(): String = UrlValidator.extractPath(dataFrameNameUrl)
 
-                        override def acceptedBy(worker: DataFrameProviderService): Boolean = worker.accepts(dataFrameNameUrl)
+                        override def getRequestURL(): String = serverContext.baseUrl + getRequestPath()
 
-                        override def executeWith(worker: DataFrameProviderService): DataFrame = worker.getDataFrame(dataFrameNameUrl, request.getUserPrincipal())
+                        override def getUserPrincipal(): UserPrincipal = request.getUserPrincipal()
+                      }
 
-                        override def handleFailure(): DataFrame = throw new DataFrameNotFoundException(dataFrameNameUrl)
-                      }))
+                      val dftpGetStreamResponse = new DftpGetStreamResponse {
+                        override def sendDataFrame(dataFrame: DataFrame): Unit = result =  Some(dataFrame)
+
+                        override def sendBlob(blob: Blob): Unit = response.attachStream(new BlobResponse {
+                          override def getBlob: Blob = blob
+                        })
+
+                        override def sendError(errorCode: Int, message: String): Unit = response.sendError(errorCode, message)
+                      }
+                      getStream(dftpGetStreamRequest, dftpGetStreamResponse)
+                      result
                     }
                   })
                   val dataFrameResponse: DataFrameResponse = new DataFrameResponse {
@@ -68,13 +80,17 @@ class BaseDftpModule extends DftpModule with Logging{
     }
   }
 
+  private def getStream(request: DftpGetStreamRequest, response: DftpGetStreamResponse): Unit = {
+    getMethods.handle(request, response)
+  }
+
   override def init(anchor: Anchor, serverContext: ServerContext): Unit = {
     this.serverContext = serverContext
 
     anchor.hook(dftpBaseEventHandler)
     anchor.hook(new EventSource {
       override def init(eventHub: EventHub): Unit =
-        eventHub.fireEvent(CollectDataFrameProviderEvent(dataFrameHolder))
+        eventHub.fireEvent(CollectGetStreamMethodEvent(getMethods))
     })
   }
 

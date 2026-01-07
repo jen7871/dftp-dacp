@@ -1,7 +1,6 @@
 package link.rdcn.server
 
 import link.rdcn.Logging
-import link.rdcn.user.UserPrincipal
 
 import scala.collection.mutable.ArrayBuffer
 

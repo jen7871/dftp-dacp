@@ -1,21 +1,19 @@
 package link.rdcn.client
 
-import link.rdcn.dacp.cook.JobStatus
+import link.rdcn.dacp.catalog.CatalogActionMethodType
+import link.rdcn.dacp.cook.{CookActionMethodType, JobStatus}
 import link.rdcn.dacp.optree._
 import link.rdcn.dacp.recipe._
-import link.rdcn.message.{DftpTicket, MapSerializer}
+import link.rdcn.message.DftpTicket.DftpTicket
 import link.rdcn.operation._
 import link.rdcn.struct._
 import link.rdcn.user.{AnonymousCredentials, Credentials, UsernamePassword}
-import link.rdcn.util.CodecUtils
-import org.apache.arrow.flight.Ticket
 import org.apache.jena.rdf.model.{Model, ModelFactory}
 import org.json.{JSONArray, JSONObject}
 
 import java.io.{File, StringReader}
-import scala.collection.JavaConverters.{asJavaCollectionConverter, asScalaIteratorConverter}
-import scala.collection.mutable
-import scala.collection.mutable.{ArrayBuffer, Map => MMap}
+import scala.collection.JavaConverters.{asJavaCollectionConverter, asScalaIteratorConverter, asScalaSetConverter}
+import scala.collection.mutable.ArrayBuffer
 
 /**
  * @Author renhao
@@ -37,19 +35,19 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
 
   def listDataFrameNames(dsName: String): Seq[String] = {
     val result = ArrayBuffer[String]()
-    get(dacpUrlPrefix+ s"/listDataFrames/$dsName")
+    get(dacpUrlPrefix+ s"/dataset/$dsName/dataframes")
       .foreach(row => result.append(row.getAs[String](0)))
     result
   }
 
   def getDataSetMetaData(dsName: String): Model = {
-    val rdfString = new String(doAction(s"getDataSetMetaData", Map("dataSetName"-> dsName)), "UTF-8").trim
-    getModelByString(rdfString)
+    val actionResult = doAction(CatalogActionMethodType.GET_DATASET_METADATA, new JSONObject().put("dataSetName", dsName))
+    getModelByString(actionResult.getResultJson().getString("content"))
   }
 
   def getDataFrameMetaData(dfName: String): Model = {
-    val rdfString = new String(doAction(s"getDataFrameMetaData", Map("dataFrameName" -> dfName)), "UTF-8").trim
-    getModelByString(rdfString)
+    val actionResult = doAction(CatalogActionMethodType.GET_DATAFRAME_METADATA, new JSONObject().put("dataFrameName", dfName))
+    getModelByString(actionResult.getResultJson().getString("content"))
   }
 
   private def getModelByString(rdfString: String): Model = {
@@ -57,82 +55,56 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
     rdfString match {
       case s if s.nonEmpty =>
         val reader = new StringReader(s)
-        model.read(reader, null, "RDF/XML")
+        model.read(reader, null, "JSON-LD")
       case _ =>
     }
     model
   }
 
   def getSchema(dataFrameName: String): StructType = {
-    val structTypeStr = new String(doAction(s"getSchema", Map("dataFrameName" -> dataFrameName)), "UTF-8")
-    StructType.fromString(structTypeStr)
+    val actionResult = doAction(CatalogActionMethodType.GET_SCHEMA, new JSONObject().put("dataFrameName", dataFrameName))
+    StructType.fromString(actionResult.result)
   }
 
   def getDataFrameTitle(dataFrameName: String): String = {
-    val jsonString = new String(doAction(s"getDataFrameInfo", Map("dataFrameName" -> dataFrameName)), "UTF-8")
-    val jo = new JSONObject(jsonString)
-    jo.getString("title")
+    val actionResult =doAction(CatalogActionMethodType.GET_DATAFRAME_INFO, new JSONObject().put("dataFrameName", dataFrameName))
+    actionResult.getResultJson().getString("title")
   }
 
   def getDocument(dataFrameName: String): DataFrameDocument = {
-
-    new String(doAction(s"getDocument", Map("dataFrameName" -> dataFrameName)), "UTF-8").trim match {
-      case s if s.nonEmpty =>
-        val jo = new JSONArray(s).getJSONObject(0)
-        new DataFrameDocument {
-          override def getSchemaURL(): Option[String] = Some("SchemaUrl")
-
-          override def getDataFrameTitle(): Option[String] = Some(jo.getString("DataFrameTitle"))
-
-          override def getColumnURL(colName: String): Option[String] = Some(jo.getString("ColumnUrl"))
-
-          override def getColumnAlias(colName: String): Option[String] = Some(jo.getString("ColumnAlias"))
-
-          override def getColumnTitle(colName: String): Option[String] = Some(jo.getString("ColumnTitle"))
-        }
-      case _ => DataFrameDocument.empty()
-    }
-
+    val actionResult = doAction(CatalogActionMethodType.GET_DOCUMENT, new JSONObject().put("dataFrameName", dataFrameName))
+    DataFrameDocument.fromJson(actionResult.getResultJson())
   }
 
   def getStatistics(dataFrameName: String): DataFrameStatistics = {
-    val jsonString: String = {
-      new String(doAction(s"getDataFrameInfo", Map("dataFrameName" -> dataFrameName)), "UTF-8").trim match {
-        case s if s.isEmpty => ""
-        case s => s
-      }
-    }
-    val jo = new JSONObject(jsonString)
-    new DataFrameStatistics {
-      override def rowCount: Long = jo.getLong("rowCount")
-
-      override def byteSize: Long = jo.getLong("byteSize")
-    }
+    val actionResult = doAction(CatalogActionMethodType.GET_DATAFRAME_INFO, new JSONObject().put("dataFrameName",dataFrameName))
+    DataFrameStatistics.fromJson(actionResult.getResultJson())
   }
 
   def getHostInfo: Map[String, String] = {
-    val jo = new JSONObject(new String(doAction("getHostInfo"), "UTF-8").trim)
+    val jo = doAction(CatalogActionMethodType.GET_HOST_INFO).getResultJson()
     jo.keys().asScala.map { key =>
       key -> jo.getString(key)
     }.toMap
   }
 
   def getServerResourceInfo: Map[String, String] = {
-    val jo = new JSONObject(new String(doAction("getServerInfo"), "UTF-8").trim)
+    val jo = doAction(CatalogActionMethodType.GET_SERVER_INFO).getResultJson()
     jo.keys().asScala.map { key =>
       key -> jo.getString(key)
     }.toMap
   }
 
   def executeTransformTree(transformOp: TransformOp): DataFrame = {
-    val schemaAndRow = getCookRows(transformOp.toJsonString)
-    DefaultDataFrame(schemaAndRow._1, schemaAndRow._2)
+    val dataFrameHandle = submitRecipe(transformOp)
+    getTabular(dataFrameHandle)
   }
 
   def cook(recipe: Flow): ExecutionResult = {
     val executePaths: Seq[FlowPath] = recipe.getExecutionPaths()
-    val ops = transformFlowToOperation(executePaths.head)
-    val dfs: Seq[DataFrame] = executePaths.map(path => RemoteDataFrameProxy(transformFlowToOperation(path), getCookRows))
+    val dfs: Seq[DataFrame] = executePaths.map(path => {
+      RemoteDataFrameProxy(transformFlowToOperation(path), getStream, submitRecipe)
+    })
     new ExecutionResult() {
       override def single(): DataFrame = dfs.head
 
@@ -144,25 +116,44 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
     }
   }
 
+  private def submitRecipe(transformOp: TransformOp): DataFrameHandle = {
+    val responseJson = new JSONObject(doAction(CookActionMethodType.SUBMIT_RECIPE, transformOp.toJsonString).result)
+
+    new DataFrameHandle {
+      override def getDataFrameMeta: DataFrameMetaData =
+        DataFrameMetaData.fromJson(responseJson.getJSONObject("dataframeMetaData"))
+
+      override def getDataFrameTicket: DftpTicket = responseJson.getString("ticket")
+    }
+  }
+
   def cook(flowJson: String): String = {
-    val resultBytes = doAction("submit", Map("flowJson" -> flowJson))
-    CodecUtils.decodeString(resultBytes)
+    val actionResult = doAction(CookActionMethodType.SUBMIT_FLOW, flowJson)
+    actionResult.getResultJson().getString("jobId")
   }
 
   def getJobStatus(jobId: String): JobStatus = {
-    val resultBytes = doAction("getJobStatus", Map("jobId" -> jobId))
-    JobStatus.fromString(CodecUtils.decodeString(resultBytes))
+    val actionResult = doAction(CookActionMethodType.GET_JOB_STATUS, new JSONObject().put("jobId", jobId))
+    JobStatus.fromString(actionResult.getResultJson().getString("status"))
   }
 
   def getJobExecuteProcess(jobId: String): Double = {
-    val resultBytes = doAction("getJobExecuteProcess", Map("jobId" -> jobId))
-    CodecUtils.decodeString(resultBytes).toDouble
+    val actionResult = doAction(CookActionMethodType.GET_JOB_EXECUTE_PROCESS, new JSONObject().put("jobId", jobId))
+    actionResult.getResultJson().getDouble("process")
   }
 
   def getJobExecuteResult(jobId: String): ExecutionResult = {
-    val resultBytes = doAction("getJobExecuteResult", Map("jobId" -> jobId))
-    val dataFrames: Map[String, DataFrame] = MapSerializer.decodeMap(resultBytes)
-      .map(kv => (kv._1, getJobDataFrame(kv._2.toString, kv._1)))
+    val actionResult = doAction(CookActionMethodType.GET_JOB_EXECUTE_RESULT, new JSONObject().put("jobId", jobId)).getResultJson()
+    val dataFrames: Map[String, DataFrame] = actionResult.keySet().asScala.map(key => {
+      val dataFrameJson = actionResult.getJSONObject(key)
+      val dataFrameHandle = new DataFrameHandle {
+        override def getDataFrameMeta: DataFrameMetaData =
+          DataFrameMetaData.fromJson(dataFrameJson.getJSONObject("dataframeMetaData"))
+
+        override def getDataFrameTicket: DftpTicket = dataFrameJson.getString("ticket")
+      }
+      (key,getTabular(dataFrameHandle))
+    }).toMap
     new ExecutionResult {
       override def single(): DataFrame = dataFrames.head._2
 
@@ -171,14 +162,6 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
 
       override def map(): Map[String, DataFrame] = dataFrames
     }
-  }
-
-  private def getJobDataFrame(jobId: String, dataFrameName: String): DataFrame = {
-    val jobParams = new JSONObject()
-    jobParams.put("jobId", jobId).put("dataFrameName", dataFrameName)
-    val schemaAndIter = getStream(new Ticket(JobTicket(jobParams.toString).encodeTicket()))
-    val stream = schemaAndIter._2.map(seq => Row.fromSeq(seq))
-    DefaultDataFrame(schemaAndIter._1, stream)
   }
 
   private def transformFlowToOperation(path: FlowPath): TransformOp = {
@@ -226,20 +209,6 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
       case s: SourceNode => SourceOp(s.dataFrameName)
       case other => throw new IllegalArgumentException(s"This FlowNode ${other} is not supported please extend Transformer11 trait")
     }
-  }
-
-  private def getCookRows(transformOpStr: String): (StructType, ClosableIterator[Row]) = {
-    val schemaAndIter = getStream(new Ticket(CookTicket(transformOpStr).encodeTicket()))
-    val stream = schemaAndIter._2.map(seq => Row.fromSeq(seq))
-    (schemaAndIter._1, ClosableIterator(stream)())
-  }
-
-  private case class CookTicket(ticketContent: String) extends DftpTicket {
-    override val typeId: Byte = 3
-  }
-
-  protected case class JobTicket(ticketContent: String) extends DftpTicket {
-    override val typeId: Byte = 4
   }
 }
 

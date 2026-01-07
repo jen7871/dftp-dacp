@@ -55,7 +55,7 @@ case class MMAPFilePipe(file: File) extends FilePipe(file) {
       finalPosition = mappedBuffer.position()
 
       // 2. [删除] 不再写入 '\0'
-      // mappedBuffer.put(0.toByte)
+      // mappedBuffer.putParameters(0.toByte)
 
       mappedBuffer.force()
     }
