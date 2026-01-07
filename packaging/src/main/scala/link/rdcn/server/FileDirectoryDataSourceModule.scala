@@ -78,7 +78,7 @@ class FileDirectoryDataSourceModule extends DftpModule {
   private val catalogService = new CatalogService {
     override def accepts(request: CatalogServiceRequest): Boolean =
       request.isNull || request.getDataSetId == dataSetName || {
-        Option(request.getDataFrameUrl)
+        Option(request.getDataFrameURL)
           .exists(path => isInDataDirectory(UrlValidator.extractPath(path)))
       }
 

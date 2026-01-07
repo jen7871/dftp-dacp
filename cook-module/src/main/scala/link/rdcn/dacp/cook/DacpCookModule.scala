@@ -43,10 +43,6 @@ object CookActionMethodType {
     ALL.contains(action)
 }
 
-trait DacpCookStreamRequest extends DftpGetStreamRequest {
-  def getTransformTree: TransformOp
-}
-
 class DacpCookModule extends DftpModule with Logging {
 
   private implicit var serverContext: ServerContext = _
@@ -123,7 +119,6 @@ class DacpCookModule extends DftpModule with Logging {
     anchor.hook(new EventHandler {
       override def accepts(event: CrossModuleEvent): Boolean = {
         event match {
-          case r: CollectGetStreamMethodEvent => true
           case r: CollectActionMethodEvent => true
           case _ => false
         }
