@@ -2,6 +2,7 @@ package link.rdcn.dacp.proxy
 
 import link.rdcn.client.DacpClient
 import link.rdcn.dacp.cook.CookActionMethodType
+import link.rdcn.dacp.optree.TransformTree
 import link.rdcn.operation.TransformOp
 import link.rdcn.dacp.recipe.ExecutionResult
 import link.rdcn.message.ActionMethodType
@@ -96,6 +97,17 @@ class ProxyModule extends DftpModule {
                     jo.put(kv._1, dataFrameJson)
                   })
                   response.sendJsonObject(jo)
+                case CookActionMethodType.SUBMIT_RECIPE =>
+                  val transformOp = TransformTree.fromJsonObject(parameters)
+                  val dataFrame = internalClient.executeTransformTree(transformOp)
+                  val dataFrameResponse = new DataFrameResponse {
+                    override def getDataFrameMetaData: DataFrameMetaData = new DataFrameMetaData {
+                      override def getDataFrameSchema: StructType = dataFrame.schema
+                    }
+
+                    override def getDataFrame: DataFrame = dataFrame
+                  }
+                  response.attachStream(dataFrameResponse)
                 case _ =>
                   try{
                     val actionResult = internalClient.doAction(request.getActionName(), parameters)

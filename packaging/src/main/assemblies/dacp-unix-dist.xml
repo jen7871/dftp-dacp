@@ -64,7 +64,7 @@
                 <exclude>**/.keep</exclude>
             </excludes>
             <includes>
-                <include>dacp-dist-0.5.0-20251201.jar</include>
+                <include>dacp-dist-0.5.0-20260107.jar</include>
             </includes>
         </fileSet>
         <fileSet>

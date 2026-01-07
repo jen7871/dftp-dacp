@@ -3,7 +3,7 @@
 # Usage:
 #   ./dacp.sh {start|stop|restart|status} <instance-id>
 
-JAR_FILE="dacp-dist-0.5.0-20251201.jar"
+JAR_FILE="dacp-dist-0.5.0-20260107.jar"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PARENT_DIR="$(dirname "$SCRIPT_DIR")"
 
