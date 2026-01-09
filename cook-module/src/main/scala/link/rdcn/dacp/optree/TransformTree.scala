@@ -30,7 +30,7 @@ import scala.collection.mutable.{Map => MMap}
  */
 object TransformTree {
 
-  def fromFlowdJsonString(flowString: String): Seq[TransformOp] = {
+  def fromFlowdJSONString(flowString: String): Seq[TransformOp] = {
     val rootJson = new JSONObject(flowString)
     val flowJson = if (rootJson.has("flow")) rootJson.getJSONObject("flow") else rootJson
 
@@ -98,7 +98,7 @@ object TransformTree {
         case "RemoteDataFrameFlowNode" =>
           RemoteSourceProxyOp(
             properties.get("baseUrl").asInstanceOf[String],
-            fromFlowdJsonString(new JSONObject().put("flow", new JSONObject(properties.get("flow").asInstanceOf[String])).toString).head,
+            fromFlowdJSONString(new JSONObject().put("flow", new JSONObject(properties.get("flow").asInstanceOf[String])).toString).head,
             properties.get("certificate").asInstanceOf[String]
           )
 
@@ -109,15 +109,15 @@ object TransformTree {
     sinkIds.map(recursiveBuild(_)).toSeq
   }
 
-  def fromJsonObject(parsed: JSONObject): TransformOp = {
+  def fromJSONObject(parsed: JSONObject): TransformOp = {
     val opType = parsed.getString("type")
     if (opType == "SourceOp") {
       SourceOp(parsed.getString("dataFrameName"))
     } else if (opType == "RemoteSourceProxyOp") {
-      RemoteSourceProxyOp(parsed.getString("baseUrl"), fromJsonObject(parsed.getJSONObject("transformOp")), parsed.getString("token"))
+      RemoteSourceProxyOp(parsed.getString("baseUrl"), fromJSONObject(parsed.getJSONObject("transformOp")), parsed.getString("token"))
     } else {
       val ja: JSONArray = parsed.getJSONArray("input")
-      val inputs = (0 until ja.length).map(ja.getJSONObject(_)).map(fromJsonObject(_))
+      val inputs = (0 until ja.length).map(ja.getJSONObject(_)).map(fromJSONObject(_))
       opType match {
         case "Map" => MapOp(FunctionWrapper(parsed.getJSONObject("function")), inputs: _*)
         case "Filter" => FilterOp(FunctionWrapper(parsed.getJSONObject("function")), inputs: _*)
@@ -129,7 +129,7 @@ object TransformTree {
     }
   }
 
-  def fromJsonString(json: String): TransformOp = fromJsonObject(new JSONObject(json))
+  def fromJsonString(json: String): TransformOp = fromJSONObject(new JSONObject(json))
 }
 
 case class RemoteSourceProxyOp(baseUrl: String, transformOp: TransformOp, certificate: String) extends TransformOp {

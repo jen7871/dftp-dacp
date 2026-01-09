@@ -89,15 +89,6 @@ object DacpClientDemo{
 
     override def accepts(request: CatalogServiceRequest): Boolean = true
   }
-  val permissionService = new PermissionService {
-    override def accepts(user: UserPrincipal): Boolean = true
-
-    override def checkPermission(user: UserPrincipal, dataFrameName: String, opList: List[DataOperationType]): Boolean =
-      user.asInstanceOf[UserPrincipalWithCredentials].credentials match {
-        case Credentials.ANONYMOUS => false
-        case UsernamePassword(username, password) =>true
-      }
-  }
 
   val dataFrameProviderService = new DataFrameProviderService {
     override def accepts(dataFrameUrl: String): Boolean = {
@@ -121,6 +112,16 @@ object DacpClientDemo{
       UserPrincipalWithCredentials(credentials)
 
     override def accepts(credentials: Credentials): Boolean = true
+  }
+
+  val permissionService = new PermissionService {
+    override def accepts(user: UserPrincipal): Boolean = true
+
+    override def checkPermission(user: UserPrincipal, dataFrameName: String, opList: List[DataOperationType]): Boolean =
+      user.asInstanceOf[UserPrincipalWithCredentials].credentials match {
+        case Credentials.ANONYMOUS => false
+        case UsernamePassword(username, password) =>true
+      }
   }
 
   @BeforeAll

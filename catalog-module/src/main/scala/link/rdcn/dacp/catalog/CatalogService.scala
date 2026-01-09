@@ -92,7 +92,7 @@ trait CatalogService {
       model.write(writer, "RDF/XML");
       val dataSetInfo = new JSONObject().put("name", dsName).toString
       Row.fromTuple((dsName, writer.toString
-        , dataSetInfo, URIRef(s"${baseUrl}/listDataFrames/$dsName")))
+        , dataSetInfo, URIRef(s"${baseUrl}/dataset/$dsName/dataframes")))
     }).toIterator
     val schema = StructType.empty.add("name", StringType)
       .add("meta", StringType).add("DataSetInfo", StringType).add("dataFrames", RefType)

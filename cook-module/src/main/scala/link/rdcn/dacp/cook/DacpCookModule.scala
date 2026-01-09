@@ -84,12 +84,7 @@ class DacpCookModule extends DftpModule with Logging {
         val dftpGetStreamResponse = new DftpGetStreamResponse {
           override def sendDataFrame(dataFrame: DataFrame): Unit = result =  Some(dataFrame)
 
-          override def sendBlob(blob: Blob): Unit = blob.offerStream[DataFrame](inputStream => {
-            val stream: Iterator[Row] = DataUtils.chunkedIterator(inputStream)
-              .map(bytes => Row.fromSeq(Seq(bytes)))
-            val schema = StructType.blobStreamStructType
-            DefaultDataFrame(schema, stream)
-          })
+          override def sendBlob(blob: Blob): Unit = result = Some(DataUtils.blobToDataFrame(blob))
 
           override def sendError(errorCode: Int, message: String): Unit = response.sendError(errorCode, message)
         }
@@ -138,7 +133,7 @@ class DacpCookModule extends DftpModule with Logging {
                 request.getActionName() match {
                   case CookActionMethodType.SUBMIT_FLOW =>
                     val jobId = getRecipeId()
-                    val transformOps: Seq[TransformOp] = TransformTree.fromFlowdJsonString(paramsJsonObject.toString)
+                    val transformOps: Seq[TransformOp] = TransformTree.fromFlowdJSONString(paramsJsonObject.toString)
                     val ctx = flowExecutionContext(request.getUserPrincipal(), response)
                     val dfs = transformOps.map(_.execute(ctx))
                     val executeResult = new ExecutionResult {
@@ -152,9 +147,9 @@ class DacpCookModule extends DftpModule with Logging {
                     }
                     jobResultCache.put(jobId, executeResult)
                     jobTransformOpsCache.put(jobId, transformOps)
-                    response.sendJsonObject(new JSONObject().put("jobId", jobId))
+                    response.sendJSONObject(new JSONObject().put("jobId", jobId))
                   case CookActionMethodType.SUBMIT_RECIPE =>
-                    val transformOp = TransformTree.fromJsonObject(paramsJsonObject)
+                    val transformOp = TransformTree.fromJSONObject(paramsJsonObject)
                     val dataframe = transformOp.execute(flowExecutionContext(request.getUserPrincipal(), response))
                     val dataFrameResponse = new DataFrameResponse {
                       override def getDataFrameMetaData: DataFrameMetaData = new DataFrameMetaData {
@@ -172,8 +167,8 @@ class DacpCookModule extends DftpModule with Logging {
                     val executionResult = jobResultCache.get(jobId)
                     if(executionResult.nonEmpty){
                       val df = executionResult.get.map().values.toList.find(df => df.mapIterator(_.hasNext))
-                      if(df.nonEmpty) response.sendJsonObject(new JSONObject().put("status", RUNNING.name))
-                      else response.sendJsonObject(new JSONObject().put("status", COMPLETE.name))
+                      if(df.nonEmpty) response.sendJSONObject(new JSONObject().put("status", RUNNING.name))
+                      else response.sendJSONObject(new JSONObject().put("status", COMPLETE.name))
                     }else response.sendError(404, s"job $jobId not exist")
                   case CookActionMethodType.GET_JOB_EXECUTE_RESULT =>
                     val jobId = paramsJsonObject.optString("jobId", null)
@@ -192,7 +187,7 @@ class DacpCookModule extends DftpModule with Logging {
                         dataFrameJson.put("ticket", serverContext.registry(kv._2))
                         jo.put(kv._1, dataFrameJson)
                       })
-                      response.sendJsonObject(jo)
+                      response.sendJSONObject(jo)
                     }
                   case CookActionMethodType.GET_JOB_EXECUTE_PROCESS =>
                     val jobId = paramsJsonObject.optString("jobId", null)
@@ -206,7 +201,7 @@ class DacpCookModule extends DftpModule with Logging {
                       if(processSeq.isEmpty) response.sendError(400, s"Unable to calculate ${transformOps.mkString(",")} progress")
                       else {
                         val process = processSeq.sum/processSeq.length
-                        response.sendJsonObject(new JSONObject().put("process", process))
+                        response.sendJSONObject(new JSONObject().put("process", process))
                       }
                     }
                   case _ => response.sendError(400, "")

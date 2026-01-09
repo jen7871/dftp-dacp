@@ -69,7 +69,7 @@ class ProxyModule extends DftpModule {
               val parameters: JSONObject = request.getRequestParameters()
               request.getActionName() match {
                 case ProxyActionMethodType.GET_TARGET_SERVER_URL  =>
-                  response.sendJsonObject(new JSONObject().put("targetServerUrl", targetServerUrl))
+                  response.sendJSONObject(new JSONObject().put("targetServerUrl", targetServerUrl))
                 case ActionMethodType.GET =>
                   val transformOp: TransformOp = TransformOp.fromJsonObject(parameters)
                   val dataFrame = internalClient.executeTransformTree(transformOp)
@@ -96,9 +96,9 @@ class ProxyModule extends DftpModule {
                     dataFrameJson.put("ticket", serverContext.registry(kv._2))
                     jo.put(kv._1, dataFrameJson)
                   })
-                  response.sendJsonObject(jo)
+                  response.sendJSONObject(jo)
                 case CookActionMethodType.SUBMIT_RECIPE =>
-                  val transformOp = TransformTree.fromJsonObject(parameters)
+                  val transformOp = TransformTree.fromJSONObject(parameters)
                   val dataFrame = internalClient.executeTransformTree(transformOp)
                   val dataFrameResponse = new DataFrameResponse {
                     override def getDataFrameMetaData: DataFrameMetaData = new DataFrameMetaData {
@@ -111,7 +111,7 @@ class ProxyModule extends DftpModule {
                 case _ =>
                   try{
                     val actionResult = internalClient.doAction(request.getActionName(), parameters)
-                    response.sendJsonString(actionResult.result)
+                    response.sendJSONString(actionResult.result)
                   }catch {
                     case e: Exception => response.sendError(500, e.getMessage)
                   }

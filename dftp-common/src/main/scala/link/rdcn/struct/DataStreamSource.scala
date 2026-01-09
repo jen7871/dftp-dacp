@@ -3,10 +3,9 @@ package link.rdcn.struct
 import link.rdcn.struct.ValueType.RefType
 import link.rdcn.util.{DataUtils, JdbcUtils}
 
-import java.io.{BufferedReader, File, FileReader}
+import java.io.{BufferedReader, File, FileInputStream, FileReader}
 import java.nio.file.attribute.BasicFileAttributes
 import java.sql.{Connection, DriverManager, ResultSet}
-
 import scala.collection.mutable.ArrayBuffer
 
 /**
@@ -83,7 +82,7 @@ object DataStreamSource {
     }
   }
 
-  def filePath(dir: File, recursive: Boolean = false): DataStreamSource = {
+  def filePath(dir: File, recursive: Boolean = false, baseurl: String = ""): DataStreamSource = {
     var iterFiles: Iterator[(File, BasicFileAttributes)] = Iterator.empty
     iterFiles = if (recursive) DataUtils.listAllFilesWithAttrs(dir)
     else DataUtils.listFilesWithAttributes(dir).toIterator
@@ -93,7 +92,7 @@ object DataStreamSource {
         (file._1.getName, file._2.size(),
           DataUtils.getFileType(file._1), file._2.creationTime().toMillis,
           file._2.lastModifiedTime().toMillis, file._2.lastAccessTime().toMillis,
-          Blob.fromFile(file._1, file._1.getAbsolutePath))
+          URIRef(baseurl + file._1.getAbsolutePath.stripPrefix(dir.getAbsolutePath)))
       }
       .map(Row.fromTuple(_))
     new DataStreamSource {
@@ -120,9 +119,12 @@ object DataStreamSource {
 
             override def schema: StructType = StructType.blobStreamStructType
 
-            override def iterator: ClosableIterator[Row] =
-              ClosableIterator(Seq(Blob.fromFile(dfFile, dfFile.getAbsolutePath))
-                .map(value => Row.fromSeq(Seq(value))).toIterator)(() => {})
+            override def iterator: ClosableIterator[Row] = {
+              val inputStream = new FileInputStream(dfFile)
+              val stream: Iterator[Row] = DataUtils.chunkedIterator(inputStream)
+                .map(bytes => Row.fromSeq(Seq(bytes)))
+              ClosableIterator(stream)(inputStream.close())
+            }
           }
       }
     } else {
@@ -133,7 +135,6 @@ object DataStreamSource {
               file._2.creationTime().toMillis,
               file._2.lastModifiedTime().toMillis,
               file._2.lastAccessTime().toMillis,
-              null,
               URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
             )
           } else {
@@ -143,12 +144,11 @@ object DataStreamSource {
               file._2.creationTime().toMillis,
               file._2.lastModifiedTime().toMillis,
               file._2.lastAccessTime().toMillis,
-              Blob.fromFile(file._1, dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName),
               URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
             )
           }
         }).map(Row.fromTuple(_))
-      val structType = StructType.binaryStructType.add("url", RefType)
+      val structType = StructType.binaryStructType
       new DataStreamSource {
         override def rowCount: Long = dfFile.listFiles().length.toLong
 

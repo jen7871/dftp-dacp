@@ -5,7 +5,7 @@ import link.rdcn.dacp.optree.fifo.FileType.FileType
 import link.rdcn.dacp.optree.fifo._
 import link.rdcn.dacp.recipe.{Transformer11, Transformer21}
 import link.rdcn.operation.{ExecutionContext, FunctionSerializer, FunctionWrapper, GenericFunctionCall}
-import link.rdcn.struct.ValueType.BlobType
+import link.rdcn.struct.ValueType.{BinaryType, BlobType}
 import link.rdcn.struct._
 import link.rdcn.util.DataUtils
 import link.rdcn.util.DataUtils.getDataFrameByStream
@@ -444,12 +444,12 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
             f.filePipe.copyToFile(FilePipe.fromFilePath(dfAndInput._2._1, dfAndInput._2._2))
           }
         case f: DataFrame =>
-          if (f.schema.columns.length == 1 && f.schema.columns.head.colType == BlobType) {
+          if (f.schema.columns.length == 1 && f.schema.columns.head.colType == BinaryType) {
 //            非结构化数据
-            val blob = f.collect().head.getAs[Blob](0)
+            val blob = DataUtils.dataFrameToBlob(f)
             val file = new File(dfAndInput._2._1)
             writeBlobToFile(blob, file)
-          } else if (f.schema.contains("file") && f.schema.getType("file").get == ValueType.BlobType) {
+          } else if (f.schema == StructType.binaryStructType) {
 //            文件夹
             val fileIndex = f.schema.indexOf("file").get
             val dir = Paths.get(dfAndInput._2._1).toFile
@@ -457,8 +457,9 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
             dir.mkdirs()
             f.foreach(row => {
               try{
-                val fileBlob = row.getAs[Blob](fileIndex)
-                writeBlobToFile(fileBlob, Paths.get(dfAndInput._2._1, row.getAs[String](0)).toFile)
+                val fileUrl = row.getAs[URIRef](fileIndex)
+                val blob = DataUtils.dataFrameToBlob(ctx.loadSourceDataFrame(fileUrl.url).get)
+                writeBlobToFile(blob, Paths.get(dfAndInput._2._1, row.getAs[String](0)).toFile)
               }catch {
                 case e: Exception => logger.error(e)
               }

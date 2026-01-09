@@ -212,19 +212,19 @@ class DftpServer(config: DftpServerConfig) extends Logging {
           responseJsonObject
             .put("dataframeMetaData", dataframeResponse.getDataFrameMetaData.toJson())
             .put("ticket", dftpTicket)
-          sendJsonObject(responseJsonObject, 304)
+          sendJSONObject(responseJsonObject, 304)
         }
 
         override def attachStream(blobResponse: BlobResponse): Unit = {
           val dftpTicket: DftpTicket = uriPool.registryBlob(blobResponse.getBlob)
-          sendJsonObject(new JSONObject().put("ticket", dftpTicket), 304)
+          sendJSONObject(new JSONObject().put("ticket", dftpTicket), 304)
         }
 
         override def sendError(errorCode: Int, message: String): Unit = {
           sendErrorWithFlightStatus(errorCode, message)
         }
 
-        override def sendJsonString(json: String, code: Int = 200): Unit = {
+        override def sendJSONString(json: String, code: Int = 200): Unit = {
           listener.onNext(new Result(CodecUtils.encodeString(code.toString)))
           listener.onNext(new Result(CodecUtils.encodeString(json)))
           listener.onCompleted()
@@ -499,12 +499,7 @@ class DftpServer(config: DftpServerConfig) extends Logging {
 
     def registryBlob(blob: Blob, expiryDate: Long = -1L): DftpTicket = {
       val blobId = UUID.randomUUID().toString
-      val dataFrame = blob.offerStream[DataFrame](inputStream => {
-        val stream: Iterator[Row] = DataUtils.chunkedIterator(inputStream)
-          .map(bytes => Row.fromSeq(Seq(bytes)))
-        val schema = StructType.blobStreamStructType
-        DefaultDataFrame(schema, stream)
-      })
+      val dataFrame = DataUtils.blobToDataFrame(blob)
       dataFrameCache.put(blobId, dataFrame)
       ticketExpiryDateCache.put(blobId, expiryDate)
       blobId

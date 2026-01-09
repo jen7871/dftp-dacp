@@ -2,7 +2,7 @@ package link.rdcn.server
 
 import link.rdcn.client.UrlValidator
 import link.rdcn.dacp.catalog.{CatalogService, CatalogServiceRequest, CollectCatalogServiceEvent}
-import link.rdcn.server.module.{CollectDataFrameProviderEvent, DataFrameProviderService}
+import link.rdcn.server.module.{CollectDataFrameProviderEvent, CollectGetStreamMethodEvent, DataFrameProviderService, GetStreamMethod}
 import link.rdcn.struct.ValueType.RefType
 import link.rdcn.struct._
 import link.rdcn.server.ServerContext
@@ -40,7 +40,7 @@ class FileDirectoryDataSourceModule extends DftpModule {
         case fileName if (fileName.endsWith(".xlsx") ||
           fileName.endsWith(".xls")) =>
           DataStreamSource.excel(dfFile.getAbsolutePath).dataFrame
-        case _ => DataFrame.fromSeq(Seq(Blob.fromFile(dfFile, dataFrameUrl)))
+        case _ => DataUtils.blobToDataFrame(Blob.fromFile(dfFile, dataFrameUrl))
       }
     } else {
       val stream = DataUtils.listFilesWithAttributes(dfFile).toIterator
@@ -50,7 +50,6 @@ class FileDirectoryDataSourceModule extends DftpModule {
               file._2.creationTime().toMillis,
               file._2.lastModifiedTime().toMillis,
               file._2.lastAccessTime().toMillis,
-              null,
               URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
             )
           } else {
@@ -60,13 +59,17 @@ class FileDirectoryDataSourceModule extends DftpModule {
               file._2.creationTime().toMillis,
               file._2.lastModifiedTime().toMillis,
               file._2.lastAccessTime().toMillis,
-              Blob.fromFile(file._1, dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName),
               URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
             )
           }
         }).map(Row.fromTuple(_))
-      val schema = StructType.binaryStructType.add("url", RefType)
-      DefaultDataFrame(schema, stream)
+      val schema = StructType.binaryStructType
+      val dataFrameStatistics = new DataFrameStatistics {
+        override def rowCount: Long = dfFile.listFiles().length.toLong
+
+        override def byteSize: Long = -1
+      }
+      DefaultDataFrame.createDataFrame(schema, stream, dataFrameStatistics)
     }
 
   }
@@ -77,10 +80,10 @@ class FileDirectoryDataSourceModule extends DftpModule {
 
   private val catalogService = new CatalogService {
     override def accepts(request: CatalogServiceRequest): Boolean =
-      request.isNull || request.getDataSetId == dataSetName || {
+      request.isNull || {
         Option(request.getDataFrameURL)
           .exists(path => isInDataDirectory(UrlValidator.extractPath(path)))
-      }
+      } || Option(request.getDataSetId).exists(_ == dataSetName)
 
     override def listDataSetNames(): List[String] = List(dataSetName)
 
@@ -144,30 +147,31 @@ class FileDirectoryDataSourceModule extends DftpModule {
     anchor.hook(new EventHandler {
       override def accepts(event: CrossModuleEvent): Boolean =
         event match {
-//          case _: CollectDataFrameProviderEvent => true
+          case _: CollectGetStreamMethodEvent => true
           case _: CollectCatalogServiceEvent => true
           case _ => false
         }
 
       override def doHandleEvent(event: CrossModuleEvent): Unit = {
         event match {
-          case require: CollectDataFrameProviderEvent =>
-            require.holder.add(
-              new DataFrameProviderService {
-                override def getDataFrame(dataFrameUrl: String, user: UserPrincipal)(implicit ctx: ServerContext): DataFrame = {
-                  val path: String = UrlValidator.extractPath(dataFrameUrl)
-                  path match {
-                    case "/listDataSets" => catalogService.doListDataSets(serverContext.baseUrl)
-                    case path if path.startsWith("/listDataFrames") => catalogService.doListDataFrames(path, serverContext.baseUrl)
-                    case other => getDataFrameByUrl(dataFrameUrl, ctx)
+          case require: CollectGetStreamMethodEvent =>
+            require.collect(
+              new GetStreamMethod {
+
+                override def accepts(request: DftpGetStreamRequest): Boolean = {
+                  request.getRequestPath() match {
+                    case "/listDataSets" => true
+                    case path if path.startsWith("/dataset") => true
+                    case other => isInDataDirectory(other)
                   }
                 }
-                override def accepts(dataFrameUrl: String): Boolean = {
-                  val path: String = UrlValidator.extractPath(dataFrameUrl)
-                  path match {
-                    case "/listDataSets" => true
-                    case path if path.startsWith("/listDataFrames") => true
-                    case other => isInDataDirectory(other)
+
+                override def doGetStream(request: DftpGetStreamRequest, response: DftpGetStreamResponse): Unit = {
+                  request.getRequestPath() match {
+                    case "/listDataSets" => response.sendDataFrame(catalogService.doListDataSets(serverContext.baseUrl))
+                    case path if path.startsWith("/dataset") =>
+                      response.sendDataFrame(catalogService.doListDataFrames(path, serverContext.baseUrl))
+                    case _ => response.sendDataFrame(getDataFrameByUrl(request.getRequestURL(), serverContext))
                   }
                 }
               })

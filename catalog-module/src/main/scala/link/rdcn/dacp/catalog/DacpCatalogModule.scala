@@ -2,12 +2,10 @@ package link.rdcn.dacp.catalog
 
 import CatalogFormatter.{getHostInfo, getSystemInfo}
 import link.rdcn.Logging
-import link.rdcn.client.UrlValidator
 import link.rdcn.server._
 import link.rdcn.server.exception.DataFrameNotFoundException
-import link.rdcn.server.module.{ActionMethod, CollectActionMethodEvent, CollectDataFrameProviderEvent, CollectGetStreamMethodEvent, DataFrameProviderService, GetStreamFilter, GetStreamFilterChain, GetStreamMethod, TaskRunner, Workers}
+import link.rdcn.server.module.{ActionMethod, CollectActionMethodEvent, CollectGetStreamMethodEvent, GetStreamMethod, TaskRunner, Workers}
 import link.rdcn.struct.{DataFrame, StructType}
-import link.rdcn.user.UserPrincipal
 import org.apache.jena.rdf.model.{Model, ModelFactory}
 
 import java.io.StringWriter
@@ -59,32 +57,32 @@ class DacpCatalogModule extends DftpModule with Logging {
                       worker.getDataSetMetaData(parameter.get("dataSetName").toString, model)
                       val writer = new StringWriter();
                       model.write(writer, "JSON-LD");
-                      response.sendJsonString(writer.toString)
+                      response.sendJSONString(writer.toString)
                     case CatalogActionMethodType.GET_DATAFRAME_METADATA =>
                       val model: Model = ModelFactory.createDefaultModel
                       worker.getDataFrameMetaData(parameter.get("dataFrameName").toString, model)
                       val writer = new StringWriter();
                       model.write(writer, "JSON-LD");
-                      response.sendJsonString(writer.toString)
+                      response.sendJSONString(writer.toString)
                     case CatalogActionMethodType.GET_DOCUMENT =>
                       val dataFrameName = parameter.get("dataFrameName").toString
                       val document = worker.getDocument(dataFrameName)
                       val schema = worker.getSchema(dataFrameName)
-                      response.sendJsonObject(document.toJson(schema.get))
+                      response.sendJSONObject(document.toJson(schema.get))
                     case CatalogActionMethodType.GET_DATAFRAME_INFO =>
                       val dataFrameName = parameter.get("dataFrameName").toString
                       val dataFrameTitle = worker.getDataFrameTitle(dataFrameName).getOrElse(dataFrameName)
                       val statistics = worker.getStatistics(dataFrameName)
                       val jo = statistics.toJson()
                       jo.put("title", dataFrameTitle)
-                      response.sendJsonObject(jo)
+                      response.sendJSONObject(jo)
                     case CatalogActionMethodType.GET_SCHEMA =>
                       val dataFrameName = parameter.get("dataFrameName").toString
-                      response.sendJsonObject(worker.getSchema(dataFrameName)
+                      response.sendJSONObject(worker.getSchema(dataFrameName)
                         .getOrElse(StructType.empty)
                         .toJson())
-                    case CatalogActionMethodType.GET_HOST_INFO => response.sendJsonObject(getHostInfo(serverContext))
-                    case CatalogActionMethodType.GET_SERVER_INFO => response.sendJsonObject(getSystemInfo())
+                    case CatalogActionMethodType.GET_HOST_INFO => response.sendJSONObject(getHostInfo(serverContext))
+                    case CatalogActionMethodType.GET_SERVER_INFO => response.sendJSONObject(getSystemInfo())
                   }
                 }
                 override def handleFailure(): Unit =
@@ -103,15 +101,10 @@ class DacpCatalogModule extends DftpModule with Logging {
               }
 
               override def doGetStream(request: DftpGetStreamRequest, response: DftpGetStreamResponse): Unit = {
-                val catalogServiceRequest = new CatalogServiceRequest {
-                  override def getDataSetId: String = null
-
-                  override def getDataFrameURL: String = request.getRequestURL()
-                }
 
                 val dataFrame = catalogServiceHolder.work(new TaskRunner[CatalogService, DataFrame] {
 
-                  override def acceptedBy(worker: CatalogService): Boolean = worker.accepts(catalogServiceRequest)
+                  override def acceptedBy(worker: CatalogService): Boolean = true
 
                   override def executeWith(worker: CatalogService): DataFrame = {
                     request.getRequestPath() match {
