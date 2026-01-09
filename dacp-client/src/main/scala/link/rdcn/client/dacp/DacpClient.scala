@@ -144,7 +144,7 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
 
   def getJobExecuteResult(jobId: String): ExecutionResult = {
     val actionResult = doAction(CookActionMethodType.GET_JOB_EXECUTE_RESULT, new JSONObject().put("jobId", jobId)).getResultJson()
-    val dataFrames: Map[String, DataFrame] = actionResult.keySet().asScala.map(key => {
+    lazy val dataFrames: Map[String, DataFrame] = actionResult.keySet().asScala.map(key => {
       val dataFrameJson = actionResult.getJSONObject(key)
       val dataFrameHandle = new DataFrameHandle {
         override def getDataFrameMeta: DataFrameMetaData =
