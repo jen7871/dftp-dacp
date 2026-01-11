@@ -56,7 +56,14 @@ case class DefaultDataFrame(
 
 object DefaultDataFrame {
   def apply(schema: StructType,
-            stream: Iterator[Row]): DefaultDataFrame = {
+            stream: Iterator[Row]
+           ): DefaultDataFrame = {
     new DefaultDataFrame(schema, ClosableIterator(stream)())
+  }
+  def createDataFrame(schema: StructType,
+                      stream: Iterator[Row],
+                      dataFrameStatistics: DataFrameStatistics = DataFrameStatistics.empty()
+                     ): DefaultDataFrame = {
+    new DefaultDataFrame(schema, ClosableIterator(stream)(), dataFrameStatistics)
   }
 }

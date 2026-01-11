@@ -53,8 +53,8 @@ trait DftpActionResponse extends DftpResponse {
   def attachStream(blobResponse: BlobResponse)
   def sendPutDataFrameParameters(json: JSONObject, code: Int = 200)
   def sendPutBlobParameters(json: JSONObject, code: Int = 200)
-  def sendJsonString(json: String, code: Int = 200)
-  def sendJsonObject(json: JSONObject, code: Int = 200) = sendJsonString(json.toString, code)
+  def sendJSONString(json: String, code: Int = 200)
+  def sendJSONObject(json: JSONObject, code: Int = 200) = sendJSONString(json.toString, code)
 }
 
 trait DftpPutStreamResponse extends DftpResponse {

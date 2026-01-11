@@ -89,15 +89,6 @@ object DacpClientDemo{
 
     override def accepts(request: CatalogServiceRequest): Boolean = true
   }
-  val permissionService = new PermissionService {
-    override def accepts(user: UserPrincipal): Boolean = true
-
-    override def checkPermission(user: UserPrincipal, dataFrameName: String, opList: List[DataOperationType]): Boolean =
-      user.asInstanceOf[UserPrincipalWithCredentials].credentials match {
-        case Credentials.ANONYMOUS => false
-        case UsernamePassword(username, password) =>true
-      }
-  }
 
   val dataFrameProviderService = new DataFrameProviderService {
     override def accepts(dataFrameUrl: String): Boolean = {
@@ -121,6 +112,16 @@ object DacpClientDemo{
       UserPrincipalWithCredentials(credentials)
 
     override def accepts(credentials: Credentials): Boolean = true
+  }
+
+  val permissionService = new PermissionService {
+    override def accepts(user: UserPrincipal): Boolean = true
+
+    override def checkPermission(user: UserPrincipal, dataFrameName: String, opList: List[DataOperationType]): Boolean =
+      user.asInstanceOf[UserPrincipalWithCredentials].credentials match {
+        case Credentials.ANONYMOUS => false
+        case UsernamePassword(username, password) =>true
+      }
   }
 
   @BeforeAll
@@ -163,6 +164,8 @@ class DacpClientDemo {
     println(dc.getDocument("/abc"))
     println(dc.getStatistics("/abc"))
 
+    println(dc.getHostInfo.mkString(","))
+    println(dc.getServerResourceInfo.mkString(","))
   }
 
   @Test
@@ -172,8 +175,6 @@ class DacpClientDemo {
     dataSets.foreach(println)
     val dataFrames = dc.get("dacp://0.0.0.0:3102/listDataFrames/dataset")
     dataFrames.foreach(println)
-    val hostInfos = dc.get("dacp://0.0.0.0:3102/listHosts")
-    hostInfos.foreach(println)
   }
 
 
@@ -184,9 +185,11 @@ class DacpClientDemo {
     df.foreach(println)
   }
 
+
+
   @Test
   def cookTest(): Unit = {
-    val dc = DacpClient.connect("dacp://10.0.82.147:3101", UsernamePassword("admin", "admin"))
+    val dc = DacpClient.connect("dacp://0.0.0.0:3102", UsernamePassword("admin", "admin"))
 
     val udf = new Transformer11 {
       override def transform(dataFrame: DataFrame): DataFrame = {
@@ -209,9 +212,6 @@ class DacpClientDemo {
 
   @Test
   def jobTest(): Unit = {
-    val udf = DataFrameCall11(new SerializableFunction[DataFrame, DataFrame] {
-      override def apply(v1: DataFrame): DataFrame = v1.limit(5)
-    })
 
     val flowJson =
       """

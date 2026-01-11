@@ -2,7 +2,7 @@ package link.rdcn.util
 
 import link.rdcn.Logging
 import link.rdcn.struct.ValueType.{BinaryType, BlobType, BooleanType, DoubleType, FloatType, IntType, LongType, NullType, RefType, StringType}
-import link.rdcn.struct.{Blob, ClosableIterator, Column, URIRef, DefaultDataFrame, Row, StructType, ValueType}
+import link.rdcn.struct.{Blob, ClosableIterator, Column, DataFrame, DefaultDataFrame, Row, StructType, URIRef, ValueType}
 import org.apache.poi.hssf.usermodel.HSSFWorkbook
 import org.apache.poi.ss.usermodel.{Cell, CellType, DateUtil}
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
@@ -315,6 +315,35 @@ object DataUtils extends Logging{
         totalRead += bytesToCopy
       }
       totalRead
+    }
+  }
+
+  def blobToDataFrame(blob: Blob): DataFrame = {
+    blob.offerStream[DataFrame](inputStream => {
+      val stream: Iterator[Row] = DataUtils.chunkedIterator(inputStream)
+        .map(bytes => Row.fromSeq(Seq(bytes)))
+      val schema = StructType.blobStreamStructType
+      DefaultDataFrame(schema, stream)
+    })
+  }
+
+  def dataFrameToBlob(df: DataFrame): Blob = {
+    new Blob {
+      override val uri = ""
+
+      override def offerStream[T](consume: InputStream => T): T = {
+        val inputStream = df.mapIterator[InputStream](iter => {
+          val chunkIterator = iter.map(value => {
+            assert(value.values.length == 1)
+            value._1 match {
+              case v: Array[Byte] => v
+              case other => throw new Exception(s"Blob parsing failed: expected Array[Byte], but got ${other}")
+            }
+          })
+          DataUtils.convertIteratorToInputStream(chunkIterator)
+        })
+        consume(inputStream)
+      }
     }
   }
 

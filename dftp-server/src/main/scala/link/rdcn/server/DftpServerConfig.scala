@@ -56,3 +56,9 @@ case class DftpServerConfig(
   def removePublicKey(name: String): DftpServerConfig =
     this.copy(pubKeyMap = pubKeyMap - name)
 }
+
+object DftpServerConfig {
+  def create(host: String, port: Int): DftpServerConfig =
+    DftpServerConfig(host, port)
+}
+

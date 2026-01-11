@@ -1,19 +1,17 @@
 package link.rdcn.dacp.proxy
 
-import link.rdcn.client.{DacpClient, UrlValidator}
-import link.rdcn.dacp.cook.{CookActionMethodType, DacpCookModule, DacpCookStreamRequest}
-import link.rdcn.operation.TransformOp
+import link.rdcn.client.DacpClient
+import link.rdcn.dacp.cook.CookActionMethodType
 import link.rdcn.dacp.optree.TransformTree
+import link.rdcn.operation.TransformOp
 import link.rdcn.dacp.recipe.ExecutionResult
 import link.rdcn.message.ActionMethodType
 import link.rdcn.server.module._
 import link.rdcn.server._
-import link.rdcn.struct.{BlobRegistry, DataFrame, DataFrameMetaData, DefaultDataFrame, Row, StructType}
+import link.rdcn.struct.{DataFrame, DataFrameMetaData, StructType}
 import link.rdcn.user.{AuthenticationMethod, Credentials, UserPrincipal}
-import link.rdcn.util.DataUtils
 import org.json.JSONObject
 
-import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 import java.beans.BeanProperty
 
@@ -71,7 +69,7 @@ class ProxyModule extends DftpModule {
               val parameters: JSONObject = request.getRequestParameters()
               request.getActionName() match {
                 case ProxyActionMethodType.GET_TARGET_SERVER_URL  =>
-                  response.sendJsonObject(new JSONObject().put("targetServerUrl", targetServerUrl))
+                  response.sendJSONObject(new JSONObject().put("targetServerUrl", targetServerUrl))
                 case ActionMethodType.GET =>
                   val transformOp: TransformOp = TransformOp.fromJsonObject(parameters)
                   val dataFrame = internalClient.executeTransformTree(transformOp)
@@ -98,11 +96,22 @@ class ProxyModule extends DftpModule {
                     dataFrameJson.put("ticket", serverContext.registry(kv._2))
                     jo.put(kv._1, dataFrameJson)
                   })
-                  response.sendJsonObject(jo)
+                  response.sendJSONObject(jo)
+                case CookActionMethodType.SUBMIT_RECIPE =>
+                  val transformOp = TransformTree.fromJSONObject(parameters)
+                  val dataFrame = internalClient.executeTransformTree(transformOp)
+                  val dataFrameResponse = new DataFrameResponse {
+                    override def getDataFrameMetaData: DataFrameMetaData = new DataFrameMetaData {
+                      override def getDataFrameSchema: StructType = dataFrame.schema
+                    }
+
+                    override def getDataFrame: DataFrame = dataFrame
+                  }
+                  response.attachStream(dataFrameResponse)
                 case _ =>
                   try{
                     val actionResult = internalClient.doAction(request.getActionName(), parameters)
-                    response.sendJsonString(actionResult.result)
+                    response.sendJSONString(actionResult.result)
                   }catch {
                     case e: Exception => response.sendError(500, e.getMessage)
                   }

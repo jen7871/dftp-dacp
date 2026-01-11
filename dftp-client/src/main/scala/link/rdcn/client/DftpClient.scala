@@ -19,7 +19,6 @@ import org.json.JSONObject
 import java.io.{File, InputStream}
 import java.util.concurrent.locks.LockSupport
 import scala.collection.JavaConverters.asScalaBufferConverter
-import scala.collection.mutable
 
 /**
  * @Author renhao
@@ -196,46 +195,58 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
   }
 
   def close(): Unit = {
-    allocator.close()
     flightClient.close()
   }
 
   protected def getStream(ticket: DftpTicket): Iterator[Row] = {
     val flightStream = flightClient.getStream(DftpTicket.getTicket(ticket))
-    val vectorSchemaRootReceived = flightStream.getRoot
-    val iter: Iterator[Seq[Any]] = new Iterator[Seq[Seq[Any]]] {
-      override def hasNext: Boolean = flightStream.next()
+    val root: VectorSchemaRoot = flightStream.getRoot
+    val fieldVectors = root.getFieldVectors.asScala
 
-      override def next(): Seq[Seq[Any]] = {
-        val rowCount = vectorSchemaRootReceived.getRowCount
-        val fieldVectors = vectorSchemaRootReceived.getFieldVectors.asScala
-        Seq.range(0, rowCount).map(index => {
-          val rowMap = mutable.LinkedHashMap(fieldVectors.map(vec => {
-            if (vec.isNull(index)) (vec.getName, null)
-            else vec match {
-              case v: org.apache.arrow.vector.IntVector => (vec.getName, v.get(index))
-              case v: org.apache.arrow.vector.BigIntVector => (vec.getName, v.get(index))
-              case v: org.apache.arrow.vector.VarCharVector =>
-                if (v.getField.getMetadata.isEmpty)
-                  (vec.getName, new String(v.get(index)))
-                else {
-                  v.getField.getMetadata.get("logicalType") match {
-                    case RefType.name => (vec.getName, URIRef(new String(v.get(index))))
-                    case BlobType.name => (vec.getName, getBlob(new String(v.get(index))))
-                    case other => throw new Exception(s"Unsupported vector type: ${other}")
-                  }
-                }
-              case v: org.apache.arrow.vector.Float8Vector => (vec.getName, v.get(index))
-              case v: org.apache.arrow.vector.BitVector => (vec.getName, v.get(index) == 1)
-              case v: org.apache.arrow.vector.VarBinaryVector => (vec.getName, v.get(index))
-              case _ => throw new UnsupportedOperationException(s"Unsupported vector type: ${vec.getClass}")
-            }
-          }): _*)
-          rowMap.values.toList
-        })
+    new Iterator[Row] {
+
+      private var rowIndex = 0
+      private var hasBatch = flightStream.next()
+
+      override def hasNext: Boolean = {
+        if (!hasBatch) {
+          flightStream.close()
+          false
+        } else if (rowIndex < root.getRowCount) {
+          true
+        } else {
+          rowIndex = 0
+          hasBatch = flightStream.next()
+          hasNext
+        }
       }
-    }.flatMap(batchRows => batchRows)
-    iter.map(seq => Row.fromSeq(seq))
+
+      override def next(): Row = {
+        val values = fieldVectors.map { vec =>
+          if (vec.isNull(rowIndex)) null
+          else vec match {
+            case v: IntVector => v.get(rowIndex)
+            case v: BigIntVector => v.get(rowIndex)
+            case v: Float8Vector => v.get(rowIndex)
+            case v: BitVector => v.get(rowIndex) == 1
+            case v: VarBinaryVector => v.get(rowIndex)
+            case v: VarCharVector =>
+              val str = new String(v.get(rowIndex))
+              val meta = v.getField.getMetadata
+              if (meta == null || meta.isEmpty) str
+              else meta.get("logicalType") match {
+                case RefType.name  => URIRef(str)
+                case BlobType.name => getBlob(str)
+                case other =>
+                  throw new UnsupportedOperationException(s"Unsupported logicalType: $other")
+              }
+            case _ => throw new UnsupportedOperationException(s"Unsupported vector type: ${vec.getClass}")
+          }
+        }
+        rowIndex += 1
+        Row.fromSeq(values)
+      }
+    }
   }
 
   private val location = {

@@ -42,12 +42,12 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
 
   def getDataSetMetaData(dsName: String): Model = {
     val actionResult = doAction(CatalogActionMethodType.GET_DATASET_METADATA, new JSONObject().put("dataSetName", dsName))
-    getModelByString(actionResult.getResultJson().getString("content"))
+    getModelByString(actionResult.result)
   }
 
   def getDataFrameMetaData(dfName: String): Model = {
     val actionResult = doAction(CatalogActionMethodType.GET_DATAFRAME_METADATA, new JSONObject().put("dataFrameName", dfName))
-    getModelByString(actionResult.getResultJson().getString("content"))
+    getModelByString(actionResult.result)
   }
 
   private def getModelByString(rdfString: String): Model = {
@@ -81,17 +81,17 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
     DataFrameStatistics.fromJson(actionResult.getResultJson())
   }
 
-  def getHostInfo: Map[String, String] = {
+  def getHostInfo: Map[String, Any] = {
     val jo = doAction(CatalogActionMethodType.GET_HOST_INFO).getResultJson()
     jo.keys().asScala.map { key =>
-      key -> jo.getString(key)
+      key -> jo.get(key)
     }.toMap
   }
 
-  def getServerResourceInfo: Map[String, String] = {
+  def getServerResourceInfo: Map[String, Any] = {
     val jo = doAction(CatalogActionMethodType.GET_SERVER_INFO).getResultJson()
     jo.keys().asScala.map { key =>
-      key -> jo.getString(key)
+      key -> jo.get(key)
     }.toMap
   }
 
@@ -144,7 +144,7 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
 
   def getJobExecuteResult(jobId: String): ExecutionResult = {
     val actionResult = doAction(CookActionMethodType.GET_JOB_EXECUTE_RESULT, new JSONObject().put("jobId", jobId)).getResultJson()
-    val dataFrames: Map[String, DataFrame] = actionResult.keySet().asScala.map(key => {
+    lazy val dataFrames: Map[String, DataFrame] = actionResult.keySet().asScala.map(key => {
       val dataFrameJson = actionResult.getJSONObject(key)
       val dataFrameHandle = new DataFrameHandle {
         override def getDataFrameMeta: DataFrameMetaData =

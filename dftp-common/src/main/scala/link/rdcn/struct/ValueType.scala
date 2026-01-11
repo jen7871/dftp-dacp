@@ -89,6 +89,7 @@ object ValueType {
       case "string" => Some(StringType)
       case "boolean" | "bool" => Some(BooleanType)
       case "binary" | "bytes" => Some(BinaryType)
+      case "ref" => Some(RefType)
       case "null" => Some(NullType)
       case _ => throw new Exception(s"The data type does not exist $lower")
     }
