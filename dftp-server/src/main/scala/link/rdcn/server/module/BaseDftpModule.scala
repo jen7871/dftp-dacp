@@ -105,6 +105,6 @@ trait DataFrameProviderService {
 }
 
 case class CollectDataFrameProviderEvent(holder: Workers[DataFrameProviderService]) extends CrossModuleEvent {
-  def collect = holder.add(_)
+  def collect(dataFrameProviderService: DataFrameProviderService): Unit = holder.add(dataFrameProviderService)
 }
 
