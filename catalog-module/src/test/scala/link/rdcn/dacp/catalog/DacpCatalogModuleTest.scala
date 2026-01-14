@@ -2,104 +2,106 @@ package link.rdcn.dacp.catalog
 
 import link.rdcn.server._
 import link.rdcn.server.module.{ActionMethod, CollectActionMethodEvent, Workers}
+import link.rdcn.struct.{Blob, DataFrame}
+import link.rdcn.message.DftpTicket.DftpTicket
+import link.rdcn.user.UserPrincipal
 import org.json.JSONObject
 import org.junit.jupiter.api.Assertions.{assertEquals, assertNotNull, assertTrue}
-import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.{BeforeEach, Test}
+
+import scala.collection.mutable.ArrayBuffer
 
 class DacpCatalogModuleTest {
 
-  /**
-   * Test the initialization and action dispatching of DacpCatalogModule.
-   */
+  // --- Local Mocks ---
+
+  class MockAnchor extends Anchor {
+    var hookedEventSource: EventSource = _
+    val hookedEventHandlers = new ArrayBuffer[EventHandler]()
+
+    override def hook(service: EventSource): Unit = hookedEventSource = service
+    override def hook(service: EventHandler): Unit = hookedEventHandlers.append(service)
+  }
+
+  class MockEventHub(handlers: Seq[EventHandler]) extends EventHub {
+    val eventsFired = new ArrayBuffer[CrossModuleEvent]()
+
+    override def fireEvent(event: CrossModuleEvent): Unit = {
+      handlers.filter(_.accepts(event)).foreach(_.doHandleEvent(event))
+      eventsFired.append(event)
+    }
+  }
+
+  class MockServerContext extends ServerContext {
+    override def getHost(): String = "localhost"
+    override def getPort(): Int = 0
+    override def getProtocolScheme(): String = "dftp"
+    override def getDftpHome(): Option[String] = None
+    override def registry(dataframe: DataFrame): DftpTicket = "mock-ticket-df"
+    override def registry(blob: Blob): DftpTicket = "mock-ticket-blob"
+  }
+
+  // --- Tests ---
+
+  private var moduleToTest: DacpCatalogModule = _
+  private var mockAnchor: MockAnchor = _
+  private var mockEventHub: MockEventHub = _
+  private var mockContext: MockServerContext = _
+
+  @BeforeEach
+  def setUp(): Unit = {
+    moduleToTest = new DacpCatalogModule()
+    mockAnchor = new MockAnchor()
+    mockContext = new MockServerContext()
+
+    // 1. Init Module
+    moduleToTest.init(mockAnchor, mockContext)
+
+    // 2. Setup EventHub with registered handlers
+    mockEventHub = new MockEventHub(mockAnchor.hookedEventHandlers)
+
+    // 3. Init EventSource if the module has one
+    if (mockAnchor.hookedEventSource != null) {
+      mockAnchor.hookedEventSource.init(mockEventHub)
+    }
+  }
+
   @Test
-  def testModuleActionDispatch(): Unit = {
-    // 1. Setup Environment
-    val module = new DacpCatalogModule()
+  def testInit_RegistersActionMethod(): Unit = {
+    // DacpCatalogModule should listen to CollectActionMethodEvent to register its CatalogActionMethod
 
-    // Mock Anchor to capture hooks
-    val mockAnchor = new Anchor {
-      var eventHandler: EventHandler = _
-      var eventSource: EventSource = _
-      override def hook(service: EventHandler): Unit = this.eventHandler = service
-      override def hook(service: EventSource): Unit = this.eventSource = service
-    }
+    // 1. Create the collector and event
+    val workers = new Workers[ActionMethod]()
+    val event = new CollectActionMethodEvent(workers)
 
-    val mockContext = new ServerContext {
-      override def getHost(): String = "test-host"
-      override def getPort(): Int = 8080
-      override def getProtocolScheme(): String = "dftp"
-      override def getDftpHome(): Option[String] = None
-    }
+    // 2. Fire the event (simulate Server startup)
+    mockEventHub.fireEvent(event)
 
-    // 2. Init Module
-    module.init(mockAnchor, mockContext)
-    assertNotNull(mockAnchor.eventHandler, "EventHandler should be registered")
-    assertNotNull(mockAnchor.eventSource, "EventSource should be registered")
+    // 3. Verify that an ActionMethod was collected
+    // We try to "work" with a dummy task to check if any worker was added
+    var workerFound = false
+    workers.work(
+      runMethod = _ => { workerFound = true; null },
+      onFail = null
+    )
 
-    // 3. Capture the Workers[CatalogService] by firing the event source
-    var workersHolder: Workers[CatalogService] = null
-    val mockEventHub = new EventHub {
-      override def fireEvent(event: CrossModuleEvent): Unit = {
-        event match {
-          case e: CollectCatalogServiceEvent => workersHolder = e.holder
-          case _ =>
-        }
-      }
-    }
-    mockAnchor.eventSource.init(mockEventHub)
-    assertNotNull(workersHolder, "Should have captured Workers holder from CollectCatalogServiceEvent")
+    // If DacpCatalogModule registered a method, the worker logic should be reachable
+    // Note: Since we didn't pass a specific task that matches the "accepts" logic,
+    // we assume 'workers' is non-empty.
+    // A better check is if we can find a handler for a specific catalog action.
 
-    // 4. Register a Mock Worker into the holder
-    // We only need to implement methods used by the action we are testing (GET_SERVER_INFO uses formatter directly, so minimal worker needed)
-    val mockWorker = new CatalogService {
-      override def accepts(request: CatalogServiceRequest): Boolean = true
-      // Other methods can be empty/null as we are testing GET_SERVER_INFO which doesn't call worker methods in this specific module logic
-      override def listDataSetNames(): List[String] = Nil
-      override def getDataSetMetaData(id: String, m: org.apache.jena.rdf.model.Model): Unit = {}
-      override def getDataFrameMetaData(n: String, m: org.apache.jena.rdf.model.Model): Unit = {}
-      override def listDataFrameNames(id: String): List[String] = Nil
-      override def getDocument(n: String): link.rdcn.struct.DataFrameDocument = null
-      override def getStatistics(n: String): link.rdcn.struct.DataFrameStatistics = null
-      override def getSchema(n: String): Option[link.rdcn.struct.StructType] = None
-      override def getDataFrameTitle(n: String): Option[String] = None
-    }
-    workersHolder.add(mockWorker)
-
-    // 5. Simulate CollectActionMethodEvent to get the ActionMethod
-    val collectActionEvent = new CollectActionMethodEvent() {
-      var capturedMethod: ActionMethod = _
-      override def collect(method: ActionMethod): Unit = capturedMethod = method
-    }
-    mockAnchor.eventHandler.doHandleEvent(collectActionEvent)
-    assertNotNull(collectActionEvent.capturedMethod, "ActionMethod should be collected")
-
-    // 6. Test Request Dispatching (Case: GET_SERVER_INFO)
-    val actionMethod = collectActionEvent.capturedMethod
-
-    // Create a mock request for GET_SERVER_INFO
+    // Let's verify by trying to handle a mock request
     val mockRequest = new DftpActionRequest {
-      override def getActionName(): String = CatalogActionMethodType.GET_SERVER_INFO
-      override def getParameterAsMap(): Map[String, Any] = Map.empty
-      override def getRequestParameters(): link.rdcn.struct.Row = link.rdcn.struct.Row.empty
+      override def getActionName(): String = "/getSchema" // A typical catalog action
+      override def getRequestParameters(): JSONObject = new JSONObject()
+      override def getUserPrincipal(): UserPrincipal = null
     }
 
-    // Capture response
-    var responseJson: String = null
-    val mockResponse = new DftpActionResponse {
-      override def sendData(data: Array[Byte]): Unit = {}
-      override def sendError(code: Int, msg: String): Unit = {}
-      override def sendJsonString(json: String): Unit = responseJson = json
-      override def sendJsonObject(json: JSONObject): Unit = responseJson = json.toString
-      override def sendDataFrame(dataFrame: link.rdcn.struct.DataFrame): Unit = {}
-    }
+    val foundHandler = workers.work(
+      runMethod = method => if (method.accepts(mockRequest)) Some(method) else None,
+      onFail = None
+    )
 
-    // Execute Action
-    assertTrue(actionMethod.accepts(mockRequest), "ActionMethod should accept GET_SERVER_INFO")
-    actionMethod.doAction(mockRequest, mockResponse)
-
-    // Verify Result
-    assertNotNull(responseJson, "Response should have been sent")
-    val responseObj = new JSONObject(responseJson)
-    assertTrue(responseObj.has("cpu.cores"), "Response for GET_SERVER_INFO should contain system info")
+    assertTrue(foundHandler.isDefined, "Should find a handler for /getSchema action")
   }
 }

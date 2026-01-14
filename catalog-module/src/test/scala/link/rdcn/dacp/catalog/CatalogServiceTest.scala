@@ -1,5 +1,6 @@
 package link.rdcn.dacp.catalog
 
+import link.rdcn.message.DftpTicket.DftpTicket
 import link.rdcn.server.ServerContext
 import link.rdcn.struct.ValueType.{LongType, RefType, StringType}
 import link.rdcn.struct._
@@ -21,6 +22,8 @@ class CatalogServiceTest {
     override def getProtocolScheme(): String = "dftp"
     override def getDftpHome(): Option[String] = None
     override def baseUrl: String = "dftp://mock-host:9999"
+    override def registry(dataframe: DataFrame): DftpTicket = "mock-ticket-df"
+    override def registry(blob: Blob): DftpTicket = "mock-ticket-blob"
   }
 
   /**

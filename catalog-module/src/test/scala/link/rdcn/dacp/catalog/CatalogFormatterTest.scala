@@ -7,7 +7,9 @@
 package link.rdcn.dacp.catalog
 
 import link.rdcn.dacp.catalog.ConfigKeys.{FAIRD_HOST_PORT, FAIRD_HOST_POSITION}
+import link.rdcn.message.DftpTicket.DftpTicket
 import link.rdcn.server.ServerContext
+import link.rdcn.struct.{Blob, DataFrame}
 import org.junit.jupiter.api.Assertions.{assertEquals, assertNotNull, assertTrue}
 import org.junit.jupiter.api.Test
 
@@ -25,6 +27,8 @@ class CatalogFormatterTest {
       override def getPort(): Int = 9999
       override def getProtocolScheme(): String = "dftp"
       override def getDftpHome(): Option[String] = None
+      override def registry(dataframe: DataFrame): DftpTicket = "mock-ticket-df"
+      override def registry(blob: Blob): DftpTicket = "mock-ticket-blob"
     }
 
     val jsonObject = CatalogFormatter.getHostInfo(mockContext)

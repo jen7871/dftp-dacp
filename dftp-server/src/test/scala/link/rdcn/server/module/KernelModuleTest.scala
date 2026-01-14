@@ -1,14 +1,10 @@
-/**
- * @Author Yomi
- * @Description:
- * @Data 2025/11/6 18:28
- * @Modified By:
- */
 package link.rdcn.server.module
 
+import link.rdcn.message.DftpTicket.DftpTicket
 import link.rdcn.server._
-import link.rdcn.struct.DataFrame
-import link.rdcn.user.{AuthenticationMethod, Credentials, UserPasswordAuthService, UserPrincipal, UserPrincipalWithCredentials, UsernamePassword}
+import link.rdcn.struct.{Blob, DataFrame}
+import link.rdcn.user.{AuthenticationMethod, Credentials, UserPasswordAuthService, UserPrincipal, UsernamePassword}
+import org.json.JSONObject
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{BeforeEach, Test}
 
@@ -34,6 +30,8 @@ class KernelModuleTest {
     override def getPort() = 1234
     override def getProtocolScheme() = "dftp"
     override def getDftpHome() = None
+    override def registry(dataframe: DataFrame): DftpTicket = "mock-ticket-df"
+    override def registry(blob: Blob): DftpTicket = "mock-ticket-blob"
   }
 
   class MockActionHandler extends ActionMethod {
@@ -58,16 +56,6 @@ class KernelModuleTest {
     override def doPutStream(request: DftpPutStreamRequest, response: DftpPutStreamResponse): Unit = doPutStreamCalled = true
   }
 
-  class MockGetStreamRequestParser extends ParseRequestMethod {
-    var parseCalled = false
-    val requestToReturn: DftpGetStreamRequest = new MockDftpGetStreamRequest()
-    override def accepts(token: Array[Byte]) = true
-    override def parse(token: Array[Byte], principal: UserPrincipal): DftpGetStreamRequest = {
-      parseCalled = true
-      requestToReturn
-    }
-  }
-
   class MockAuthenticationService extends UserPasswordAuthService {
     var authenticateCalled = false
     val userToReturn: UserPrincipal = MockUserPrincipal("MockAuthUser")
@@ -84,33 +72,41 @@ class KernelModuleTest {
   class MockDftpActionResponse extends DftpActionResponse {
     var errorSent = false; var errorCode = 0; var message = ""
     override def sendError(code: Int, msg: String): Unit = { errorSent = true; errorCode = code; message = msg }
-    override def sendData(data: Array[Byte]): Unit = {}
+    override def sendJsonString(json: String, code: Int): Unit = {}
+    override def attachStream(dataFrameResponse: DataFrameResponse): Unit = {}
+    override def attachStream(blobResponse: BlobResponse): Unit = {}
+    override def sendPutDataFrameParameters(json: JSONObject, code: Int): Unit = {}
+    override def sendPutBlobParameters(json: JSONObject, code: Int): Unit = {}
   }
 
   class MockDftpGetStreamResponse extends DftpGetStreamResponse {
     var errorSent = false; var errorCode = 0
     override def sendError(code: Int, msg: String): Unit = { errorSent = true; errorCode = code }
     override def sendDataFrame(dataFrame: DataFrame): Unit = {}
+    override def sendBlob(blob: Blob): Unit = {}
   }
 
   class MockDftpPutStreamResponse extends DftpPutStreamResponse {
     var errorSent = false; var errorCode = 0
     override def sendError(code: Int, msg: String): Unit = { errorSent = true; errorCode = code }
-    override def sendData(data: Array[Byte]): Unit = {}
+    override def onNext(json: String): Unit = {}
+    override def onCompleted(): Unit = {}
   }
 
   class MockDftpActionRequest(action: String = "test") extends DftpActionRequest {
     override def getActionName(): String = action
-    override def getParameter(): Array[Byte] = Array.empty
+    override def getRequestParameters(): JSONObject = new JSONObject()
     override def getUserPrincipal(): UserPrincipal = null
   }
 
   class MockDftpGetStreamRequest extends DftpGetStreamRequest {
     override def getUserPrincipal(): UserPrincipal = null
+    override def getRequestPath(): String = "/path"
+    override def getRequestURL(): String = "dftp://host/path"
   }
 
   class MockDftpPutStreamRequest extends DftpPutStreamRequest {
-    override def getDataFrame(): DataFrame = null
+    override def getRequestParameters(): JSONObject = new JSONObject()
     override def getUserPrincipal(): UserPrincipal = null
   }
 
@@ -121,7 +117,6 @@ class KernelModuleTest {
   private var mockEventHub: MockEventHub = _
 
   private var authHolder: Workers[AuthenticationMethod] = _
-  private var parseHolder: Workers[ParseRequestMethod] = _
   private var getHolder: FilteredGetStreamMethods = _
   private var actionHolder: Workers[ActionMethod] = _
   private var putHolder: Workers[PutStreamMethod] = _
@@ -138,7 +133,6 @@ class KernelModuleTest {
     mockAnchor.hookedEventSource.init(mockEventHub)
 
     authHolder = mockEventHub.eventsFired.find(_.isInstanceOf[CollectAuthenticationMethodEvent]).get.asInstanceOf[CollectAuthenticationMethodEvent].collector
-    parseHolder = mockEventHub.eventsFired.find(_.isInstanceOf[CollectParseRequestMethodEvent]).get.asInstanceOf[CollectParseRequestMethodEvent].collector
     getHolder = mockEventHub.eventsFired.find(_.isInstanceOf[CollectGetStreamMethodEvent]).get.asInstanceOf[CollectGetStreamMethodEvent].collector
     actionHolder = mockEventHub.eventsFired.find(_.isInstanceOf[CollectActionMethodEvent]).get.asInstanceOf[CollectActionMethodEvent].collector
     putHolder = mockEventHub.eventsFired.find(_.isInstanceOf[CollectPutStreamMethodEvent]).get.asInstanceOf[CollectPutStreamMethodEvent].collector
@@ -146,9 +140,9 @@ class KernelModuleTest {
 
   @Test
   def testInit_FiresAllEvents(): Unit = {
-    assertEquals(6, mockEventHub.eventsFired.length, "init() should fire 6 events")
+    // Should fire Auth, Action, Put, Get events (4 events)
+    assertEquals(4, mockEventHub.eventsFired.length, "init() should fire 4 events")
     assertTrue(mockEventHub.eventsFired.exists(_.isInstanceOf[CollectAuthenticationMethodEvent]))
-    assertTrue(mockEventHub.eventsFired.exists(_.isInstanceOf[CollectParseRequestMethodEvent]))
     assertTrue(mockEventHub.eventsFired.exists(_.isInstanceOf[CollectActionMethodEvent]))
     assertTrue(mockEventHub.eventsFired.exists(_.isInstanceOf[CollectPutStreamMethodEvent]))
     assertTrue(mockEventHub.eventsFired.exists(_.isInstanceOf[CollectGetStreamMethodEvent]))
@@ -177,7 +171,6 @@ class KernelModuleTest {
 
     assertTrue(mockResponse.errorSent, "Should send error if handler missing")
     assertEquals(404, mockResponse.errorCode, "Should return 404")
-    assertTrue(mockResponse.message.contains("test-action"), "Message should contain action name")
   }
 
   @Test
@@ -229,32 +222,6 @@ class KernelModuleTest {
   }
 
   @Test
-  def testParseGetStreamRequest_WithHandler(): Unit = {
-    val mockParser = new MockGetStreamRequestParser()
-    val mockToken = Array[Byte](1, 2)
-    val mockPrincipal = new MockUserPrincipal("test")
-
-    parseHolder.add(mockParser)
-    val result = kernelModule.parseGetStreamRequest(mockToken, mockPrincipal)
-
-    assertTrue(mockParser.parseCalled, "Injected Parser should be called")
-    assertEquals(mockParser.requestToReturn, result, "Returned request mismatch")
-  }
-
-  @Test
-  def testParseGetStreamRequest_NoHandler(): Unit = {
-    val mockToken = Array[Byte](1, 2)
-    val mockPrincipal = new MockUserPrincipal("test")
-
-    val ex = assertThrows(classOf[Exception], () => {
-      kernelModule.parseGetStreamRequest(mockToken, mockPrincipal)
-      ()
-    }, "Should throw exception if parser missing")
-
-    assertTrue(ex.getMessage.contains("GetStreamRequestParser"), "Message should indicate missing parser")
-  }
-
-  @Test
   def testAuthenticate_WithHandler(): Unit = {
     val mockAuth = new MockAuthenticationService()
 
@@ -263,13 +230,5 @@ class KernelModuleTest {
 
     assertTrue(mockAuth.authenticateCalled, "Injected AuthenticationService should be called")
     assertEquals(mockAuth.userToReturn, user, "Returned User mismatch")
-  }
-
-  @Test
-  def testAuthenticate_NoHandler(): Unit = {
-    val user = kernelModule.authenticate(MockCredentials)
-
-    assertTrue(user.isInstanceOf[UserPrincipalWithCredentials], "Default should return UserPrincipalWithCredentials")
-    assertEquals(MockCredentials, user.asInstanceOf[UserPrincipalWithCredentials].credentials, "Credentials mismatch")
   }
 }

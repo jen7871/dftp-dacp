@@ -1,3 +1,9 @@
+/**
+ * @Author Yomi
+ * @Description:
+ * @Data 2025/9/25 11:08
+ * @Modified By:
+ */
 package link.rdcn.client
 
 /**
@@ -174,11 +180,15 @@ class ClientUtilsJunitTest {
     queueField.setAccessible(true)
     val queue = queueField.get(putListener).asInstanceOf[java.util.concurrent.BlockingQueue[PutResult]]
     queue.clear() // 确保队列为空
-    var result: Option[Array[Byte]] = None
+
+    // 修改处：类型改为 Option[Iterator[String]] 以匹配 ClientUtils.parsePutListener 的返回类型
+    var result: Option[Iterator[String]] = None
+
     val thread = new Thread(new Runnable {
       override def run(): Unit = {
         // 阻塞操作在单独线程中执行
-        result = ClientUtils.parsePutListener(putListener)
+        // 修改处：将结果包裹在 Some 中
+        result = Some(ClientUtils.parsePutListener(putListener))
       }
     })
     thread.start()
