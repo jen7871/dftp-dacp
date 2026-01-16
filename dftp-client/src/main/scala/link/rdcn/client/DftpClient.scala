@@ -94,8 +94,13 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
   def getTabular(url: String): DataFrame = get(url)
 
   def getTabular(dataFrameHandle: DataFrameHandle): DataFrame = {
-    val stream = getStream(dataFrameHandle.getDataFrameTicket)
-    DefaultDataFrame(dataFrameHandle.getDataFrameMeta.getDataFrameSchema, stream)
+    val getStreamFunc = () => getStream(dataFrameHandle.getDataFrameTicket)
+
+    // Create LazyDefaultDataFrame with the lazy stream
+    LazyDefaultDataFrame(
+      dataFrameHandle.getDataFrameMeta.getDataFrameSchema,
+      getStreamFunc
+    )
   }
 
   def getBlob(url: String): Blob = {

@@ -92,7 +92,7 @@ trait CatalogService {
       model.write(writer, "RDF/XML");
       val dataSetInfo = new JSONObject().put("name", dsName).toString
       Row.fromTuple((dsName, writer.toString
-        , dataSetInfo, URIRef(s"${baseUrl}/dataset/$dsName/dataframes")))
+        , dataSetInfo, URIRef(s"/dataset/$dsName/dataframes")))
     }).toIterator
     val schema = StructType.empty.add("name", StringType)
       .add("meta", StringType).add("DataSetInfo", StringType).add("dataFrames", RefType)
@@ -122,7 +122,7 @@ trait CatalogService {
           getDocument(dfName).toJson(dfSchema.getOrElse(StructType.empty)).toString,
           schema.toString,
           getStatistics(dfName).toJson().toString,
-          URIRef(s"${baseUrl}/$dfName"))
+          URIRef(s"$dfName"))
       })
       .map(Row.fromTuple(_)).toIterator
     DefaultDataFrame(schema, stream)

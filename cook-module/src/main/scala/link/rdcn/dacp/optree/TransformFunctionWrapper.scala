@@ -16,7 +16,7 @@ import java.net.{URL, URLClassLoader}
 import java.nio.file.{Files, Paths}
 import java.util
 import java.util.{Base64, ServiceLoader, UUID}
-import scala.collection.JavaConverters.{asJavaIterableConverter, asScalaBufferConverter, mapAsScalaMapConverter}
+import scala.collection.JavaConverters.{asJavaIterableConverter, asScalaBufferConverter, asScalaIteratorConverter, mapAsScalaMapConverter}
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.util.{Failure, Success, Try}
@@ -45,7 +45,7 @@ object TransformFunctionWrapper {
       case LangTypeV2.JAVA_BIN.name => JavaBin(jo.getString("serializedBase64"))
       case LangTypeV2.JAVA_CODE.name => JavaCode(jo.getString("javaCodeString"))
       case LangTypeV2.PYTHON_BIN.name => PythonBin(jo.getString("functionName"), jo.getString("whlPath"), jo.getInt("batchSize"))
-      case LangTypeV2.JAVA_JAR.name => JavaJar(jo.getString("jarPath"), jo.getString("functionName"))
+      case LangTypeV2.JAVA_JAR.name => JavaJar(jo.getString("jarPath"), jo.getString("functionName"), jo.getString("className"))
       case LangTypeV2.CPP_BIN.name => CppBin(jo.getString("cppPath"))
       case LangTypeV2.REPOSITORY_OPERATOR.name => RepositoryOperator(jo.getString("functionName"), Try(jo.getString("functionVersion")).toOption)
       case LangTypeV2.FILE_REPOSITORY_BUNDLE.name => {
@@ -220,12 +220,13 @@ case class PythonBin(functionName: String, whlPath: String, batchSize: Int = 100
   }
 }
 
-case class JavaJar(jarPath: String, functionName: String) extends TransformFunctionWrapper {
+case class JavaJar(jarPath: String, functionName: String, className: String) extends TransformFunctionWrapper {
   override def toJson: JSONObject = {
     val jo = new JSONObject()
     jo.put("type", LangTypeV2.JAVA_JAR.name)
-    jo.put("jarPath", jarPath)
-    jo.put("functionName", functionName)
+      .put("jarPath", jarPath)
+      .put("functionName", functionName)
+      .put("className", className)
   }
 
   override def applyToDataFrames(input: Seq[DataFrame], ctx: FlowExecutionContext): DataFrame = {
@@ -235,9 +236,11 @@ case class JavaJar(jarPath: String, functionName: String) extends TransformFunct
     val pluginLoader = new PluginClassLoader(urls, parentLoader)
     functionName match {
       case "Transformer11" =>
-        val serviceLoader = ServiceLoader.load(classOf[Transformer11], pluginLoader).iterator()
-        if (!serviceLoader.hasNext) throw new Exception(s"No Transformer11 implementation class was found in this jar $jarPath")
-        serviceLoader.next().transform(input.head)
+        val serviceLoader = ServiceLoader.load(classOf[Transformer11], pluginLoader).iterator().asScala.toList
+        serviceLoader.find(instance => instance.getClass.getName == className)
+          .map(instance => instance.transform(input.head)).getOrElse(
+            throw new Exception(s"No $className Transformer11 implementation class was found in this jar $jarPath")
+          )
       case "Transformer21" =>
         val serviceLoader = ServiceLoader.load(classOf[Transformer21], pluginLoader).iterator()
         if (!serviceLoader.hasNext) throw new Exception(s"No Transformer21 implementation class was found in this jar $jarPath")
