@@ -88,6 +88,7 @@ class RepositoryClient(host: String = "http://10.0.89.39", port: Int = 8090) ext
           JavaJar(packageFile.getAbsolutePath, operatorFunctionName, className)
         case LangTypeV2.CPP_BIN.name =>
           val packageFile = Paths.get(operatorDir, "lib", s"$functionName-${functionVersion.get}.cpp").toFile
+          saveInputStreamToFile(inputStream, packageFile)
           CppBin(packageFile.getAbsolutePath)
         case LangTypeV2.PYTHON_BIN.name =>
           val packageFile = Paths.get(operatorDir, "lib", s"$functionName-${functionVersion.get}.whl").toFile
