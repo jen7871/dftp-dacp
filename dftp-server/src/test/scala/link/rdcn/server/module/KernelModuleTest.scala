@@ -72,7 +72,7 @@ class KernelModuleTest {
   class MockDftpActionResponse extends DftpActionResponse {
     var errorSent = false; var errorCode = 0; var message = ""
     override def sendError(code: Int, msg: String): Unit = { errorSent = true; errorCode = code; message = msg }
-    override def sendJsonString(json: String, code: Int): Unit = {}
+    override def sendJSONString(json: String, code: Int): Unit = {}
     override def attachStream(dataFrameResponse: DataFrameResponse): Unit = {}
     override def attachStream(blobResponse: BlobResponse): Unit = {}
     override def sendPutDataFrameParameters(json: JSONObject, code: Int): Unit = {}

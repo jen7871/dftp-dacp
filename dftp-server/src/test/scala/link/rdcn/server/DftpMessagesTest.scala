@@ -22,7 +22,7 @@ class DftpMessagesTest {
     var sentJsonString: String = _
     var sentCode: Int = -1
 
-    override def sendJsonString(json: String, code: Int): Unit = {
+    override def sendJSONString(json: String, code: Int): Unit = {
       sentJsonString = json
       sentCode = code
     }
@@ -54,7 +54,7 @@ class DftpMessagesTest {
     json.put("id", 123)
 
     // Call the default method sendJsonObject
-    response.sendJsonObject(json, 202)
+    response.sendJSONObject(json, 202)
 
     // Verify it delegated to sendJsonString
     assertNotNull(response.sentJsonString, "sendJsonObject should delegate to sendJsonString")

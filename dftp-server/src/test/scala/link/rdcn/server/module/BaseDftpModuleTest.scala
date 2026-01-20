@@ -135,7 +135,7 @@ class BaseDftpModuleTest {
       override def attachStream(blobResponse: BlobResponse): Unit = {}
       override def sendPutDataFrameParameters(json: JSONObject, code: Int): Unit = {}
       override def sendPutBlobParameters(json: JSONObject, code: Int): Unit = {}
-      override def sendJsonString(json: String, code: Int): Unit = {}
+      override def sendJSONString(json: String, code: Int): Unit = {}
       override def sendError(errorCode: Int, message: String): Unit = fail(s"Error sent: $errorCode $message")
     }
 

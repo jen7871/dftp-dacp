@@ -66,7 +66,6 @@ object DftpClientTestProvider {
   @AfterAll
   def stop(): Unit = {
     stopServer()
-    BlobRegistry.cleanUp()
     //    DftpClientTestDataGenerator.cleanupTestData(baseDir)
   }
 
@@ -144,7 +143,7 @@ class ActionModule extends DftpModule {
 
     override def accepts(request: DftpActionRequest): Boolean = true
 
-    override def doAction(request: DftpActionRequest, response: DftpActionResponse): Unit = response.sendJsonString("")
+    override def doAction(request: DftpActionRequest, response: DftpActionResponse): Unit = response.sendJSONString("")
   }
   private val eventHandler = new EventHandler {
 
