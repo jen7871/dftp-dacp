@@ -212,6 +212,16 @@ object DataUtils extends Logging{
     StructType.fromSeq(headers.zip(finalTypes).map { case (n, t) => Column(n, t) })
   }
 
+  def getExcelRowNum(path: String): Int = {
+    val fis = new FileInputStream(path)
+    val workbook = new XSSFWorkbook(fis)
+    val sheet = workbook.getSheetAt(0)
+    val rowCount = sheet.getPhysicalNumberOfRows
+    workbook.close()
+    fis.close()
+    rowCount
+  }
+
   /** 按 schema 读取所有数据为 Iterator[List[Any]] */
   def readExcelRows(path: String, schema: StructType): Iterator[List[Any]] = {
     val workbook = if (path.toLowerCase().endsWith(".xlsx")) {

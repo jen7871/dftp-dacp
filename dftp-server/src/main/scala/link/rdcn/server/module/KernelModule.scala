@@ -88,21 +88,21 @@ trait PutStreamMethod {
 }
 
 case class CollectAuthenticationMethodEvent(collector: Workers[AuthenticationMethod]) extends CrossModuleEvent {
-  def collect = collector.add(_)
+  def collect(authenticationMethod: AuthenticationMethod): Unit = collector.add(authenticationMethod)
 }
 
 case class CollectActionMethodEvent(collector: Workers[ActionMethod]) extends CrossModuleEvent {
-  def collect = collector.add(_)
+  def collect(actionMethod: ActionMethod): Unit = collector.add(actionMethod)
 }
 
 case class CollectPutStreamMethodEvent(collector: Workers[PutStreamMethod]) extends CrossModuleEvent {
-  def collect = collector.add(_)
+  def collect(putStreamMethod: PutStreamMethod): Unit = collector.add(putStreamMethod)
 }
 
 case class CollectGetStreamMethodEvent(collector: FilteredGetStreamMethods) extends CrossModuleEvent {
-  def collect = collector.addMethod(_)
+  def collect(getStreamMethod: GetStreamMethod): Unit = collector.addMethod(getStreamMethod)
 
-  def addFilter = collector.addFilter(_, _)
+  def addFilter(order: Int, getStreamFilter: GetStreamFilter): Unit = collector.addFilter(order, getStreamFilter)
 }
 
 trait GetStreamFilter {

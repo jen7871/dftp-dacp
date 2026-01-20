@@ -49,7 +49,7 @@ class TransformFunctionWrapperTest {
 
     if (!new File(jarPath).exists()) return
 
-    val javaJar = JavaJar(jarPath, "Transformer11")
+    val javaJar = JavaJar(jarPath, "Transformer11", "")
     val newDataFrame = javaJar.applyToInput(dataFrames, ctx).asInstanceOf[DataFrame]
     newDataFrame.foreach(row => {
       assertEquals(1, row.getAs[Int](0), "JavaJar col_1 mismatch")

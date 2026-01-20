@@ -6,6 +6,7 @@
         </Console>
 
         <Http name="FluentdHttp" url="http://10.0.82.143:8888/0.0.0.0:3101" method="POST">
+            <!-- 可选：JSON格式发送，方便td-agent处理 -->
             <PatternLayout pattern='{"timestamp":"%d{yyyy-MM-dd HH:mm:ss}","level":"%p","logger":"%c{1}","line":%L,"message":"%m"}'/>
         </Http>
     </Appenders>

@@ -1,3 +1,4 @@
+
 /**
  * @Author Yomi
  * @Description:
@@ -6,76 +7,43 @@
  */
 package link.rdcn.message
 
-import org.junit.jupiter.api.Assertions.{assertArrayEquals, assertEquals}
+import org.apache.arrow.flight.Ticket
+import org.junit.jupiter.api.Assertions.{assertEquals, assertNotNull}
 import org.junit.jupiter.api.Test
 
-import java.nio.ByteBuffer
-import java.nio.charset.StandardCharsets
-
-class DftpTicketJunitTest {
-
-  private val BLOB_TICKET_ID: Byte = 1
-  private val GET_TICKET_ID: Byte = 2
+class DftpTicketTest {
 
   @Test
-  def testBlobTicketEncode(): Unit = {
-    val blobId = "blob-uuid-12345"
-    val blobTicket = BlobTicket(blobId)
+  def testGetTicketFromDftpTicketString(): Unit = {
+    // DftpTicket 现在是 String 的类型别名
+    val dftpTicketString = "token-12345-abc"
 
-    // Cover BlobTicket instantiation and encodeTicket()
-    val encoded = blobTicket.encodeTicket()
+    // 执行：将 String 转换为 Arrow Ticket
+    val arrowTicket: Ticket = DftpTicket.getTicket(dftpTicketString)
 
-    val contentBytes = blobId.getBytes(StandardCharsets.UTF_8)
-    val expectedLength = 1 + 4 + contentBytes.length
-
-    assertEquals(expectedLength, encoded.length, "Encoded array length must match (typeId + length + content)")
-
-    // Verify encoded content
-    val buffer = ByteBuffer.wrap(encoded)
-
-    assertEquals(BLOB_TICKET_ID, buffer.get(), "First byte must be the BlobTicket typeId (1)")
-    assertEquals(contentBytes.length, buffer.getInt(), "Next 4 bytes must be the content length")
-
-    val decodedContent = new Array[Byte](contentBytes.length)
-    buffer.get(decodedContent)
-
-    assertArrayEquals(contentBytes, decodedContent, "Decoded content bytes must match original blobId")
+    assertNotNull(arrowTicket, "Generated Arrow Ticket should not be null")
+    val bytes = arrowTicket.getBytes
+    assertNotNull(bytes, "Ticket bytes should not be null")
   }
 
   @Test
-  def testBlobTicketWithEmptyContent(): Unit = {
-    val blobId = ""
-    val blobTicket = BlobTicket(blobId)
+  def testGetDftpTicketFromArrowTicket(): Unit = {
+    val originalString = "access-token-xyz"
+    // 通过工厂方法创建 Ticket
+    val arrowTicket = DftpTicket.getTicket(originalString)
 
-    val encoded = blobTicket.encodeTicket()
+    // 执行：将 Arrow Ticket 转回 String
+    val resultString = DftpTicket.getDftpTicket(arrowTicket)
 
-    // Verify length and content
-    val buffer = ByteBuffer.wrap(encoded)
-    assertEquals(BLOB_TICKET_ID, buffer.get(), "Type ID must be 1")
-    assertEquals(0, buffer.getInt(), "Content length must be 0 for empty content")
-
-    assertEquals(buffer.remaining(), 0, "Buffer should be exhausted")
+    // 验证：往返转换应保持一致
+    assertEquals(originalString, resultString, "Decoded DftpTicket string should match original")
   }
 
   @Test
-  def testGetTicketEncode(): Unit = {
-    val url = "dftp://server/query?op=filter"
-    val getTicket = GetTicket(url)
-
-    // Cover GetTicket instantiation and encodeTicket()
-    val encoded = getTicket.encodeTicket()
-
-    val contentBytes = url.getBytes(StandardCharsets.UTF_8)
-
-    // Verify encoded content
-    val buffer = ByteBuffer.wrap(encoded)
-
-    assertEquals(GET_TICKET_ID, buffer.get(), "First byte must be the GetTicket typeId (2)")
-    assertEquals(contentBytes.length, buffer.getInt(), "Next 4 bytes must be the content length")
-
-    val decodedContent = new Array[Byte](contentBytes.length)
-    buffer.get(decodedContent)
-
-    assertArrayEquals(contentBytes, decodedContent, "Decoded content bytes must match original URL")
+  def testConstantsExistence(): Unit = {
+    // 验证 ActionMethodType 常量是否存在 (用于编译检查)
+    assertEquals("GET", ActionMethodType.GET)
+    assertEquals("PUT_BLOB", ActionMethodType.PUT_BLOB)
+    assertEquals("PUT_DATAFRAME", ActionMethodType.PUT_DATAFRAME)
   }
 }

@@ -1,3 +1,10 @@
+
+/**
+ * @Author Yomi
+ * @Description:
+ * @Data 2025/7/29 17:30
+ * @Modified By:
+ */
 package link.rdcn
 
 /**
@@ -59,8 +66,7 @@ object DftpClientTestProvider {
   @AfterAll
   def stop(): Unit = {
     stopServer()
-    BlobRegistry.cleanUp()
-//    DftpClientTestDataGenerator.cleanupTestData(baseDir)
+    //    DftpClientTestDataGenerator.cleanupTestData(baseDir)
   }
 
   def getServer: DftpServer = synchronized {
@@ -71,8 +77,8 @@ object DftpClientTestProvider {
       override def accepts(credentials: Credentials): Boolean = true
     }
     if (server.isEmpty) {
-//      val directoryDataSourceModule = new FileDirectoryDataSourceModule
-//      directoryDataSourceModule.setRootDirectory(new File(baseDir))
+      //      val directoryDataSourceModule = new FileDirectoryDataSourceModule
+      //      directoryDataSourceModule.setRootDirectory(new File(baseDir))
       val modules = Array(new BaseDftpModule,
         new UserPasswordAuthModule(userPasswordAuthService))
       val s = DftpServer.start(DftpServerConfig("0.0.0.0", 3101, Some("data")), modules)
@@ -100,7 +106,9 @@ class PutModule extends DftpModule {
     override def accepts(request: DftpPutStreamRequest): Boolean = true
 
     override def doPutStream(request: DftpPutStreamRequest, response: DftpPutStreamResponse): Unit = {
-      response.sendData("success".getBytes)
+      // Fix: sendData removed, replaced with onNext for JSON/String messages
+      response.onNext("success")
+      response.onCompleted()
     }
   }
   private val eventHandler = new EventHandler {
@@ -108,10 +116,10 @@ class PutModule extends DftpModule {
     override def accepts(event: CrossModuleEvent): Boolean = true
 
     override def doHandleEvent(event: CrossModuleEvent): Unit = {
-        event match {
-          case r: CollectPutStreamMethodEvent => r.collector.add(putStreamHandler)
-          case _ =>
-        }
+      event match {
+        case r: CollectPutStreamMethodEvent => r.collector.add(putStreamHandler)
+        case _ =>
+      }
     }
   }
 
@@ -135,7 +143,7 @@ class ActionModule extends DftpModule {
 
     override def accepts(request: DftpActionRequest): Boolean = true
 
-    override def doAction(request: DftpActionRequest, response: DftpActionResponse): Unit = response.sendJsonString("")
+    override def doAction(request: DftpActionRequest, response: DftpActionResponse): Unit = response.sendJSONString("")
   }
   private val eventHandler = new EventHandler {
 

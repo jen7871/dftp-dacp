@@ -50,7 +50,7 @@ class FileDirectoryDataSourceModule extends DftpModule {
               file._2.creationTime().toMillis,
               file._2.lastModifiedTime().toMillis,
               file._2.lastAccessTime().toMillis,
-              URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
+              URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName).replaceAll(ctx.baseUrl, ""))
             )
           } else {
             (
@@ -59,7 +59,7 @@ class FileDirectoryDataSourceModule extends DftpModule {
               file._2.creationTime().toMillis,
               file._2.lastModifiedTime().toMillis,
               file._2.lastAccessTime().toMillis,
-              URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
+              URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName).replaceAll(ctx.baseUrl, ""))
             )
           }
         }).map(Row.fromTuple(_))

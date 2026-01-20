@@ -74,7 +74,7 @@ object DataStreamSource {
     val structType = DataUtils.inferExcelSchema(excelPath)
     val iterRows = DataUtils.readExcelRows(excelPath, structType)
     new DataStreamSource {
-      override def rowCount: Long = -1
+      override def rowCount: Long = DataUtils.getExcelRowNum(excelPath)
 
       override def schema: StructType = structType
 
