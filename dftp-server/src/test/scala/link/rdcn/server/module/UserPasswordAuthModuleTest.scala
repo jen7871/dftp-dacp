@@ -1,12 +1,8 @@
-/**
- * @Author Yomi
- * @Description:
- * @Data 2025/11/6 18:27
- * @Modified By:
- */
 package link.rdcn.server.module
 
+import link.rdcn.message.DftpTicket.DftpTicket
 import link.rdcn.server._
+import link.rdcn.struct.{Blob, DataFrame}
 import link.rdcn.user._
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{BeforeEach, Test}
@@ -49,6 +45,9 @@ class UserPasswordAuthModuleTest {
     override def getPort(): Int = 0
     override def getProtocolScheme(): String = "dftp"
     override def getDftpHome(): Option[String] = None
+    // Implement missing registry methods required by ServerContext trait
+    override def registry(dataframe: DataFrame): DftpTicket = "mock-ticket-df"
+    override def registry(blob: Blob): DftpTicket = "mock-ticket-blob"
   }
 
   class OtherMockEvent extends CrossModuleEvent

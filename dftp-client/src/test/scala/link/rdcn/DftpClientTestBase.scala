@@ -1,6 +1,6 @@
 package link.rdcn
 
-import link.rdcn.server.module.{CollectGetStreamMethodEvent, FilteredGetStreamMethods, GetStreamMethod, Workers}
+import link.rdcn.server.module.{CollectGetStreamMethodEvent, FilteredGetStreamMethods, GetStreamMethod}
 import link.rdcn.server._
 import link.rdcn.struct.ValueType.{IntType, StringType}
 import link.rdcn.struct._
@@ -46,6 +46,9 @@ class MockServerContext extends ServerContext {
   override def getPort(): Int = 3101
   override def getProtocolScheme(): String = "dftp"
   override def getDftpHome(): Option[String] = None
+  // 补充 ServerContext 接口中可能缺失的方法实现
+  override def registry(dataframe: DataFrame): link.rdcn.message.DftpTicket.DftpTicket = "mock-ticket"
+  override def registry(blob: Blob): link.rdcn.message.DftpTicket.DftpTicket = "mock-ticket"
 }
 
 
@@ -61,12 +64,14 @@ class GetStreamModule extends DftpModule {
       event match {
         case r: CollectGetStreamMethodEvent => r.collect(
           new GetStreamMethod {
-            override def accepts(request: DftpGetStreamRequest): Boolean = request.asInstanceOf[DftpGetPathStreamRequest].getRequestURL().contains("oldStream")
+            // Fix: DftpGetPathStreamRequest removed, use DftpGetStreamRequest directly
+            override def accepts(request: DftpGetStreamRequest): Boolean = request.getRequestURL().contains("oldStream")
 
             override def doGetStream(request: DftpGetStreamRequest, response: DftpGetStreamResponse): Unit = {
-              request.asInstanceOf[DftpGetPathStreamRequest].getRequestURL() match {
+              request.getRequestURL() match {
                 case url if url.contains("oldStream") =>
                   response.sendDataFrame(mockDF)
+                case _ => // Handle other cases or do nothing
               }
             }
           })
@@ -91,4 +96,3 @@ class GetStreamModule extends DftpModule {
   override def destroy(): Unit = {
   }
 }
-

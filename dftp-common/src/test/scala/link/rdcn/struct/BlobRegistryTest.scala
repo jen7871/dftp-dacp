@@ -17,6 +17,7 @@ object BlobRegistryTest {
 
   val TEST_DATA = "Test data for stream".getBytes(StandardCharsets.UTF_8)
   val mockBlob = new Blob {
+    override val uri: String = ""
     override def offerStream[T](consume: InputStream => T): T = {
       val stream = new ByteArrayInputStream(TEST_DATA)
       consume(stream)

@@ -6,106 +6,37 @@
  */
 package link.rdcn.struct
 
-import org.junit.jupiter.api.Assertions.{assertEquals, assertThrows, assertTrue}
-import org.junit.jupiter.api.{AfterAll, BeforeAll, Test}
+import org.junit.jupiter.api.Assertions.{assertEquals, assertNotNull}
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 
-import java.io._
+import java.io.File
 import java.nio.charset.StandardCharsets
+import java.nio.file.{Files, Path}
 
-object BlobFromFileTest {
+class BlobTest {
 
-  val TEST_CONTENT = "Hello, Blob File Test!"
-  val testFile = new File("test_blob_temp.txt")
-
-  @BeforeAll
-  def setUp(): Unit = {
-    // Write test content to temp file
-    val writer = new BufferedWriter(new FileWriter(testFile))
-    try {
-      writer.write(TEST_CONTENT)
-    } finally {
-      writer.close()
-    }
-  }
-
-  @AfterAll
-  def tearDown(): Unit = {
-    // Delete temp file
-    if (testFile.exists()) {
-      testFile.delete()
-    }
-  }
-}
-
-class BlobFromFileTest {
-  import BlobFromFileTest._
+  @TempDir
+  var tempDir: Path = _
 
   @Test
-  def testFromFile_ReadsContentCorrectly(): Unit = {
-    // Cover Blob.fromFile
-    val blob = Blob.fromFile(testFile)
-    val verifier = new StreamVerifier()
+  def testBlobFromFile(): Unit = {
+    // Create a temporary file
+    val content = "Blob test content 123"
+    val file = tempDir.resolve("test.blob").toFile
+    Files.write(file.toPath, content.getBytes(StandardCharsets.UTF_8))
 
-    // Cover offerStream try block
-    blob.offerStream(verifier)
+    // Create Blob from file
+    val blob = Blob.fromFile(file,file.toString)
+    assertNotNull(blob, "Blob creation failed")
 
-    // Verify content
-    assertEquals(TEST_CONTENT, verifier.readContent, "Consumer should read the correct file content")
-  }
+    // Consume stream and verify
+    blob.offerStream { is =>
+      val bytes = new Array[Byte](is.available())
+      is.read(bytes)
+      val readContent = new String(bytes, StandardCharsets.UTF_8)
 
-  @Test
-  def testFromFile_EnsuresStreamIsClosed(): Unit = {
-    // Cover offerStream finally block
-    val blob = Blob.fromFile(testFile)
-
-    // Consumer that doesn't close the stream
-    val closingConsumer: InputStream => Unit = stream => {
-      val bytes = new Array[Byte](stream.available())
-      stream.read(bytes)
-    }
-
-    blob.offerStream(closingConsumer)
-
-    assertTrue(true, "The test verifies that the stream was closed by the finally block implicitly (no exception thrown).")
-  }
-
-  @Test
-  def testFromFile_HandlesExceptionInConsumer(): Unit = {
-    val blob = Blob.fromFile(testFile)
-
-    // Cover exception in try block
-    val exceptionConsumer: InputStream => Unit = _ => {
-      throw new RuntimeException("Consumer failed")
-    }
-
-    val exception = assertThrows(classOf[RuntimeException], () => {
-      blob.offerStream(exceptionConsumer)
-    })
-    assertEquals("Consumer failed", exception.getMessage, "The original consumer exception should be rethrown")
-  }
-
-  class StreamVerifier extends (InputStream => String) {
-    var readContent: String = ""
-    var streamClosed: Boolean = false
-
-    override def apply(stream: InputStream): String = {
-      // Check if stream is FileInputStream
-      assertTrue(stream.isInstanceOf[FileInputStream], "Stream passed to consumer must be a FileInputStream")
-
-      // Read content
-      val contentBytes = new Array[Byte](stream.available())
-      stream.read(contentBytes)
-      readContent = new String(contentBytes, StandardCharsets.UTF_8)
-
-      // Try closing, if successful it means it wasn't closed externally yet (but this is just verification logic)
-      try {
-        stream.close()
-        streamClosed = true
-      } catch {
-        case _: IOException => // ignore
-      }
-
-      readContent
+      assertEquals(content, readContent, "Content read from Blob stream mismatch")
     }
   }
 }

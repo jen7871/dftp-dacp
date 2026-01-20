@@ -33,6 +33,8 @@ class PermissionServiceModuleTest {
     override def getPort(): Int = 0
     override def getProtocolScheme(): String = "dftp"
     override def getDftpHome(): Option[String] = None
+    override def registry(dataframe: link.rdcn.struct.DataFrame): link.rdcn.message.DftpTicket.DftpTicket = "mock-ticket-df"
+    override def registry(blob: link.rdcn.struct.Blob): link.rdcn.message.DftpTicket.DftpTicket = "mock-ticket-blob"
   }
 
   class OtherMockEvent extends CrossModuleEvent
