@@ -216,39 +216,23 @@ object DacpClient {
   val protocolSchema = "dacp"
   private val urlValidator = UrlValidator(protocolSchema)
 
-  def connect(url: String, credentials: Credentials = null, useUnifiedLogin: Boolean = false): DacpClient = {
+  def connect(url: String, credentials: Credentials = null): DacpClient = {
     urlValidator.validate(url) match {
       case Right(parsed) =>
         val client = new DacpClient(parsed._1, parsed._2.getOrElse(3101))
-        if(credentials != null) {
-          if(useUnifiedLogin){
-            credentials match {
-              case AnonymousCredentials => client.login(credentials)
-              case c: UsernamePassword => client.login(OdcAuthClient.requestAccessToken(c))
-              case _ => throw new IllegalArgumentException(s"the $credentials is not supported")
-            }
-          }else client.login(credentials)
-        }
+        if(credentials != null) client.login(credentials)
         client
       case Left(err) =>
         throw new IllegalArgumentException(s"Invalid DACP URL: $err")
     }
   }
 
-  def connectTLS(url: String, file: File, credentials: Credentials = null, useUnifiedLogin: Boolean = false): DacpClient = {
+  def connectTLS(url: String, file: File, credentials: Credentials = null): DacpClient = {
     System.setProperty("javax.net.ssl.trustStore", file.getAbsolutePath)
     urlValidator.validate(url) match {
       case Right(parsed) =>
         val client = new DacpClient(parsed._1, parsed._2.getOrElse(3101), true)
-        if(credentials != null) {
-          if(useUnifiedLogin){
-            credentials match {
-              case AnonymousCredentials => client.login(credentials)
-              case c: UsernamePassword => client.login(OdcAuthClient.requestAccessToken(c))
-              case _ => throw new IllegalArgumentException(s"the $credentials is not supported")
-            }
-          }else client.login(credentials)
-        }
+        if(credentials != null) client.login(credentials)
         client
       case Left(err) =>
         throw new IllegalArgumentException(s"Invalid DACP URL: $err")
