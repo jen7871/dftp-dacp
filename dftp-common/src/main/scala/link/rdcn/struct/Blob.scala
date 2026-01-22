@@ -2,25 +2,16 @@ package link.rdcn.struct
 
 import java.io.{File, FileInputStream, InputStream}
 
-trait Blob extends DFValue {
-
-  val uri: String
+trait Blob {
 
   def offerStream[T](consume: InputStream => T): T
-
-  override def value: Any = this
-
-  override def valueType: ValueType = ValueType.BlobType
 
   override def toString: String = s"Blob Value"
 }
 
 object Blob {
-  def fromFile(file: File, resourcePath: String): Blob = {
+  def fromFile(file: File): Blob = {
     new Blob {
-
-      override val uri: String = resourcePath
-
       override def offerStream[T](consume: java.io.InputStream => T): T = {
         var stream: InputStream = null
         try {

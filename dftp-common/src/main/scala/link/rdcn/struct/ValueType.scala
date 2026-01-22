@@ -1,6 +1,6 @@
 package link.rdcn.struct
 
-import link.rdcn.struct.ValueType.{NullType, RefType}
+import link.rdcn.struct.ValueType.RefType
 
 /**
  * @Author renhao
@@ -14,12 +14,19 @@ trait DFValue {
   def valueType: ValueType
 }
 
-case class URIRef(url: String) extends DFValue {
+class NotFoundException(message: String) extends Exception(message)
 
-  override def value: Any = url
+trait URIRef extends DFValue {
+
+  def getUrl: String
+
+  override def value: Any = getUrl
 
   override def valueType: ValueType = RefType
 
+  def getBlob: Blob
+
+  def getDataFrame: DataFrame
 }
 
 sealed trait ValueType {
@@ -59,10 +66,6 @@ object ValueType {
 
   case object RefType extends ValueType {
     val name = "REF"
-  }
-
-  case object BlobType extends ValueType {
-    val name = "Blob"
   }
 
   case object NullType extends ValueType {

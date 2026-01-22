@@ -5,7 +5,7 @@ import link.rdcn.client.ClientUtils.convertStructTypeToArrowSchema
 import link.rdcn.message.DftpTicket.DftpTicket
 import link.rdcn.message.{ActionMethodType, DftpTicket}
 import link.rdcn.operation._
-import link.rdcn.struct.ValueType.{BlobType, RefType}
+import link.rdcn.struct.ValueType.RefType
 import link.rdcn.struct._
 import link.rdcn.user.Credentials
 import link.rdcn.util.{CodecUtils, DataUtils}
@@ -106,8 +106,6 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
   def getBlob(url: String): Blob = {
     val df = RemoteDataFrameProxy(SourceOp(validateUrl(url)), getStream, openDataFrame)
     new Blob {
-      override val uri = url
-
       override def offerStream[T](consume: InputStream => T): T = {
         val inputStream = df.mapIterator[InputStream](iter => {
           val chunkIterator = iter.map(value => {
@@ -240,8 +238,13 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
               val meta = v.getField.getMetadata
               if (meta == null || meta.isEmpty) str
               else meta.get("logicalType") match {
-                case RefType.name  => URIRef(str)
-                case BlobType.name => getBlob(str)
+                case RefType.name  => new URIRef {
+                  override def getUrl: String = str
+
+                  override def getBlob: Blob = DftpClient.this.getBlob(getUrl)
+
+                  override def getDataFrame: DataFrame = DftpClient.this.getTabular(getUrl)
+                }
                 case other =>
                   throw new UnsupportedOperationException(s"Unsupported logicalType: $other")
               }
@@ -307,13 +310,6 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
             case v: Boolean => vec.asInstanceOf[BitVector].setSafe(i, if (v) 1 else 0)
             case v: Array[Byte] => vec.asInstanceOf[VarBinaryVector].setSafe(i, v)
             case null => vec.setNull(i)
-            case v: URIRef =>
-              val bytes = v.url.getBytes("UTF-8")
-              vec.asInstanceOf[VarCharVector].setSafe(i, bytes)
-            case v: Blob =>
-              //TODO Blob chunk transfer default max size 100MB
-              val bytes = v.offerStream[Array[Byte]](_.readNBytes(100 * 1024 * 1024))
-              vec.asInstanceOf[VarBinaryVector].setSafe(i, bytes)
             case _ => throw new UnsupportedOperationException("Type not supported")
           }
           j += 1

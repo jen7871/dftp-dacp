@@ -6,6 +6,7 @@ import link.rdcn.server.module.{CollectDataFrameProviderEvent, CollectGetStreamM
 import link.rdcn.struct.ValueType.RefType
 import link.rdcn.struct._
 import link.rdcn.server.ServerContext
+import link.rdcn.struct.DataStreamSource.filePath
 import link.rdcn.user.UserPrincipal
 import link.rdcn.util.DataUtils
 import org.apache.jena.rdf.model.{Model, ModelFactory}
@@ -40,17 +41,24 @@ class FileDirectoryDataSourceModule extends DftpModule {
         case fileName if (fileName.endsWith(".xlsx") ||
           fileName.endsWith(".xls")) =>
           DataStreamSource.excel(dfFile.getAbsolutePath).dataFrame
-        case _ => DataUtils.blobToDataFrame(Blob.fromFile(dfFile, dataFrameUrl))
+        case _ => DataUtils.blobToDataFrame(Blob.fromFile(dfFile))
       }
     } else {
       val stream = DataUtils.listFilesWithAttributes(dfFile).toIterator
         .map(file => {
+          val urlRef = new URIRef {
+            override def getUrl: String = dataFramePath + File.separator + file._1.getName
+
+            override def getBlob: Blob = Blob.fromFile(file._1)
+
+            override def getDataFrame: DataFrame = filePath(file._1, getUrl).dataFrame
+          }
           if (file._1.isDirectory) {
             (file._1.getName, -1L, "directory",
               file._2.creationTime().toMillis,
               file._2.lastModifiedTime().toMillis,
               file._2.lastAccessTime().toMillis,
-              URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName).replaceAll(ctx.baseUrl, ""))
+              urlRef
             )
           } else {
             (
@@ -59,7 +67,7 @@ class FileDirectoryDataSourceModule extends DftpModule {
               file._2.creationTime().toMillis,
               file._2.lastModifiedTime().toMillis,
               file._2.lastAccessTime().toMillis,
-              URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName).replaceAll(ctx.baseUrl, ""))
+              urlRef
             )
           }
         }).map(Row.fromTuple(_))
@@ -168,9 +176,9 @@ class FileDirectoryDataSourceModule extends DftpModule {
 
                 override def doGetStream(request: DftpGetStreamRequest, response: DftpGetStreamResponse): Unit = {
                   request.getRequestPath() match {
-                    case "/listDataSets" => response.sendDataFrame(catalogService.doListDataSets(serverContext.baseUrl))
+                    case "/listDataSets" => response.sendDataFrame(catalogService.doListDataSets())
                     case path if path.startsWith("/dataset") =>
-                      response.sendDataFrame(catalogService.doListDataFrames(path, serverContext.baseUrl))
+                      response.sendDataFrame(catalogService.doListDataFrames(path))
                     case _ => response.sendDataFrame(getDataFrameByUrl(request.getRequestURL(), serverContext))
                   }
                 }

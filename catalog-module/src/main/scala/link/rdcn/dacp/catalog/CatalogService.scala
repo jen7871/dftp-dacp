@@ -84,7 +84,7 @@ trait CatalogService {
    * 输入链接（实现链接）： dacp://0.0.0.0:3101/listDataSets
    * 返回链接： dacp://0.0.0.0:3101/listDataFrames/dataSetName
    * */
-  final def doListDataSets(baseUrl: String): DataFrame = {
+  final def doListDataSets(): DataFrame = {
     val stream = listDataSetNames().map(dsName => {
       val model: Model = ModelFactory.createDefaultModel
       getDataSetMetaData(dsName, model)
@@ -92,7 +92,13 @@ trait CatalogService {
       model.write(writer, "RDF/XML");
       val dataSetInfo = new JSONObject().put("name", dsName).toString
       Row.fromTuple((dsName, writer.toString
-        , dataSetInfo, URIRef(s"/dataset/$dsName/dataframes")))
+        , dataSetInfo, new URIRef {
+        override def getUrl: String = s"/dataset/$dsName/dataframes"
+
+        override def getBlob: Blob = throw new NotFoundException(s"Blob not found for the given URL ${getUrl}")
+
+        override def getDataFrame: DataFrame = doListDataFrames(getUrl)
+      }))
     }).toIterator
     val schema = StructType.empty.add("name", StringType)
       .add("meta", StringType).add("DataSetInfo", StringType).add("dataFrames", RefType)
@@ -103,16 +109,16 @@ trait CatalogService {
    * 输入链接（实现链接）： dacp://0.0.0.0:3101/dataset/dataSetName/dataframes
    * 返回链接： dacp://0.0.0.0:3101/dataFrameName
    * */
-  final def doListDataFrames(listDataFrameUrl: String, baseUrl: String): DataFrame = {
+  final def doListDataFrames(listDataFrameUrl: String): DataFrame = {
     val dataSetName = listDataFrameUrl.stripPrefix("/dataset/")
       .stripSuffix("/dataframes ")
-    val schema = StructType.empty.add("name", StringType)
+    val schema = StructType.empty.add("url", StringType)
       .add("size", LongType)
       .add("title", StringType)
       .add("document", StringType)
       .add("schema", StringType)
       .add("statistics", StringType)
-      .add("dataFrame", RefType)
+      .add("dataFrameUrl", StringType)
     val stream: Iterator[Row] = listDataFrameNames(dataSetName)
       .map(dfName => {
         val dfSchema = getSchema(dfName)
@@ -121,8 +127,7 @@ trait CatalogService {
           getDataFrameTitle(dfName).getOrElse(null),
           getDocument(dfName).toJson(dfSchema.getOrElse(StructType.empty)).toString,
           schema.toString,
-          getStatistics(dfName).toJson().toString,
-          URIRef(s"$dfName"))
+          getStatistics(dfName).toJson().toString)
       })
       .map(Row.fromTuple(_)).toIterator
     DefaultDataFrame(schema, stream)

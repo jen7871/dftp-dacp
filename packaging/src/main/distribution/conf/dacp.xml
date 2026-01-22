@@ -11,11 +11,14 @@
         <property name="host" value="${dacp.host.position}"/>
         <property name="port" value="${dacp.host.port}"/>
         <property name="useTls" value="${dacp.tls.enabled}"/>
+        <property name="dftpHome">
+            <value>${serverHome}</value>
+        </property>
         <property name="publicKeyMapPath">
-            <value>file:${configDir}/server.pub</value>
+            <value>${configDir}/server.pub</value>
         </property>
         <property name="privateKeyPath">
-            <value>file:${configDir}/server.key</value>
+            <value>${configDir}/server.key</value>
         </property>
         <property name="modules">
             <list>
