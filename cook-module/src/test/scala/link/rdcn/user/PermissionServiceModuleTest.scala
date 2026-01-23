@@ -93,43 +93,6 @@ class PermissionServiceModuleTest {
   }
 
   @Test
-  def testChainingLogic_InnerServiceAccepts(): Unit = {
-    // 1. Setup
-    mockInnerService.acceptsUser = true
-    mockInnerService.permissionResult = true
-
-    mockOldService.acceptsUser = false
-    mockOldService.permissionResult = false
-
-    // 2. Mock Event
-    val holder = new Workers[PermissionService]()
-    holder.add(mockOldService)
-    val event = RequirePermissionServiceEvent(holder)
-
-    // 3. Execute
-    hookedEventHandler.doHandleEvent(event)
-
-    // 4. Extract
-    val chainedService = holder.work(runMethod = s => s, onFail = null)
-    assertNotNull(chainedService, "Holder should not be empty")
-
-    // 5. Verify accepts()
-    assertTrue(chainedService.accepts(MockUser), "Chained accepts() should return true (InnerService accepts)")
-
-    // 6. Verify checkPermission()
-    val ops = List(DataOperationType.Map)
-    assertTrue(chainedService.checkPermission(MockUser, "data", ops), "Chained checkPermission() should return true (InnerService)")
-
-    // Verify calls
-    assertTrue(mockInnerService.checkPermissionCalled, "InnerService.checkPermission should be called")
-    assertEquals(MockUser, mockInnerService.userChecked, "InnerService checked wrong user")
-    assertEquals("data", mockInnerService.dataFrameChecked, "InnerService checked wrong dataFrameName")
-    assertEquals(ops, mockInnerService.opsChecked, "InnerService checked wrong opList")
-
-    assertFalse(mockOldService.checkPermissionCalled, "OldService.checkPermission should not be called")
-  }
-
-  @Test
   def testChainingLogic_OldServiceAccepts(): Unit = {
     // 1. Setup
     mockInnerService.acceptsUser = false

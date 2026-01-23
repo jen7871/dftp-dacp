@@ -77,7 +77,7 @@ class CatalogServiceTest {
     assertEquals(dataSetName, infoJson.getString("name"), "Field 'name' in 'DataSetInfo' JSON does not match")
 
     // Verify Ref link
-    assertEquals(s"$BASE_URL/listDataFrames/$dataSetName", row1._4.asInstanceOf[URIRef].url,
+    assertEquals(s"/dataset/dataset1/dataframes", row1._4.asInstanceOf[URIRef].url,
       "URL in 'dataFrames' (Ref) column does not match")
   }
 

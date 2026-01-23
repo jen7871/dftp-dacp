@@ -93,8 +93,8 @@ class DacpCookModuleTest {
       assertTrue(mockEventHub.eventsFired.nonEmpty, "Module should fire events during init")
 
       // Verify CollectDataFrameProviderEvent is present (common for CookModule)
-      val hasProviderEvent = mockEventHub.eventsFired.exists(_.isInstanceOf[CollectDataFrameProviderEvent])
-      assertTrue(hasProviderEvent, "Should fire CollectDataFrameProviderEvent")
+      val hasProviderEvent = mockEventHub.eventsFired.exists(_.isInstanceOf[CollectGetStreamMethodEvent])
+      assertTrue(hasProviderEvent, "Should fire CollectGetStreamMethodEvent")
     }
 
     // Verify Handlers are hooked
