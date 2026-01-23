@@ -1,16 +1,13 @@
 package link.rdcn.server
 
-import link.rdcn.struct.{Column, DataFrame, DefaultDataFrame, Row, StructType, ValueType}
-import link.rdcn.struct.ValueType.{BinaryType, BlobType, BooleanType, DoubleType, FloatType, IntType, LongType, RefType, StringType}
-import link.rdcn.util.DataUtils
-import link.rdcn.util.DataUtils.inferValueType
+import link.rdcn.struct.{Column, DataFrame, Row, StructType, ValueType}
+import link.rdcn.struct.ValueType.{BinaryType, BooleanType, DoubleType, FloatType, IntType, LongType, RefType, StringType}
 import org.apache.arrow.flight.{FlightProducer, FlightStream, Result}
 import org.apache.arrow.memory.BufferAllocator
 import org.apache.arrow.vector.ipc.ArrowStreamWriter
 import org.apache.arrow.vector.{BigIntVector, BitVector, Float4Vector, Float8Vector, IntVector, VarBinaryVector, VarCharVector, VectorSchemaRoot}
 import org.apache.arrow.vector.types.{FloatingPointPrecision, Types}
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
-import org.json.JSONObject
 
 import java.io.ByteArrayOutputStream
 import java.net.NetworkInterface
@@ -46,10 +43,6 @@ object ServerUtils {
           val metadata = new java.util.HashMap[String, String]()
           metadata.put("logicalType", RefType.name)
           new FieldType(column.nullable, ArrowType.Utf8.INSTANCE, null, metadata)
-        case BlobType =>
-          val metadata = new java.util.HashMap[String, String]()
-          metadata.put("logicalType", BlobType.name)
-          new FieldType(column.nullable, ArrowType.Utf8.INSTANCE, null, metadata)
         case _ =>
           throw new UnsupportedOperationException(s"Unsupported type: ${column.colType}")
       }
@@ -70,8 +63,6 @@ object ServerUtils {
         case t if t == Types.MinorType.VARCHAR.getType =>
           if (field.getMetadata.isEmpty) ValueType.StringType else ValueType.RefType
         case t if t == Types.MinorType.BIT.getType => ValueType.BooleanType
-        case t if t == Types.MinorType.VARBINARY.getType => if (field.getMetadata.isEmpty)
-          ValueType.BinaryType else ValueType.BlobType
         case _ => throw new UnsupportedOperationException(s"Unsupported Arrow type: ${field.getType}")
       }
       Column(field.getName, colType)

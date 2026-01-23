@@ -5,7 +5,7 @@ import link.rdcn.dacp.optree.fifo.FileType.FileType
 import link.rdcn.dacp.optree.fifo._
 import link.rdcn.dacp.recipe.{Transformer11, Transformer21}
 import link.rdcn.operation.{ExecutionContext, FunctionSerializer, FunctionWrapper, GenericFunctionCall}
-import link.rdcn.struct.ValueType.{BinaryType, BlobType}
+import link.rdcn.struct.ValueType.BinaryType
 import link.rdcn.struct._
 import link.rdcn.util.DataUtils
 import link.rdcn.util.DataUtils.getDataFrameByStream
@@ -461,7 +461,7 @@ trait FileRepositoryBundle extends TransformFunctionWrapper {
             f.foreach(row => {
               try{
                 val fileUrl = row.getAs[URIRef](fileIndex)
-                val blob = DataUtils.dataFrameToBlob(ctx.loadSourceDataFrame(fileUrl.url).get)
+                val blob = fileUrl.getBlob
                 writeBlobToFile(blob, Paths.get(dfAndInput._2._1, row.getAs[String](0)).toFile)
               }catch {
                 case e: Exception => logger.error(e)

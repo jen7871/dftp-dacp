@@ -1,7 +1,7 @@
 package link.rdcn.util
 
 import link.rdcn.Logging
-import link.rdcn.struct.ValueType.{BinaryType, BlobType, BooleanType, DoubleType, FloatType, IntType, LongType, NullType, RefType, StringType}
+import link.rdcn.struct.ValueType.{BinaryType, BooleanType, DoubleType, FloatType, IntType, LongType, NullType, RefType, StringType}
 import link.rdcn.struct.{Blob, ClosableIterator, Column, DataFrame, DefaultDataFrame, Row, StructType, URIRef, ValueType}
 import org.apache.poi.hssf.usermodel.HSSFWorkbook
 import org.apache.poi.ss.usermodel.{Cell, CellType, DateUtil}
@@ -189,7 +189,6 @@ object DataUtils extends Logging{
     case _: Boolean => BooleanType
     case _: Array[Byte] => BinaryType
     case _: java.io.File => BinaryType
-    case _: Blob => BlobType
     case _: URIRef => RefType
     case _ => StringType
   }
@@ -339,8 +338,6 @@ object DataUtils extends Logging{
 
   def dataFrameToBlob(df: DataFrame): Blob = {
     new Blob {
-      override val uri = ""
-
       override def offerStream[T](consume: InputStream => T): T = {
         val inputStream = df.mapIterator[InputStream](iter => {
           val chunkIterator = iter.map(value => {

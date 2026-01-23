@@ -108,9 +108,9 @@ class DacpCatalogModule extends DftpModule with Logging {
 
                   override def executeWith(worker: CatalogService): DataFrame = {
                     request.getRequestPath() match {
-                      case "/listDataSets" => worker.doListDataSets(serverContext.baseUrl)
+                      case "/listDataSets" => worker.doListDataSets()
                       case path if path.startsWith("/dataset") =>
-                        worker.doListDataFrames(path, serverContext.baseUrl)
+                        worker.doListDataFrames(path)
                     }
                   }
 
