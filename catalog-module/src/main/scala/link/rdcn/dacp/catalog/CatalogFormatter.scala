@@ -8,6 +8,7 @@ import link.rdcn.struct.{DataFrameDocument, DataFrameStatistics, DataStreamSourc
 import link.rdcn.util.DataUtils
 import org.json.{JSONArray, JSONObject}
 
+import java.io.File
 import java.lang.management.ManagementFactory
 
 /**
@@ -31,6 +32,10 @@ object CatalogFormatter {
     val maxMemory = runtime.maxMemory() / 1024 / 1024 // MB
     val usedMemory = totalMemory - freeMemory
 
+    val file = new File("/")
+    val totalDiskSpace = file.getTotalSpace / 1024 / 1024 / 1024 // GB
+    val freeDiskSpace = file.getFreeSpace / 1024 / 1024 / 1024 // GB
+
     val systemMemoryTotal = osBean.getTotalPhysicalMemorySize / 1024 / 1024 // MB
     val systemMemoryFree = osBean.getFreePhysicalMemorySize / 1024 / 1024 // MB
     val systemMemoryUsed = systemMemoryTotal - systemMemoryFree
@@ -45,6 +50,10 @@ object CatalogFormatter {
     json.put("system.memory.total.mb", s"$systemMemoryTotal MB")
     json.put("system.memory.used.mb", s"$systemMemoryUsed MB")
     json.put("system.memory.free.mb", s"$systemMemoryFree MB")
+
+    json.put("disk.total.space.gb", s"$totalDiskSpace GB")
+    json.put("disk.used.space.gb", s"${totalDiskSpace - freeDiskSpace} GB")
+    json.put("disk.free.space.gb", s"$freeDiskSpace GB")
 
     json
   }

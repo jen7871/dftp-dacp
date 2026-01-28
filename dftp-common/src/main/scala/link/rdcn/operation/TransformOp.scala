@@ -38,7 +38,13 @@ trait TransformOp {
     }).filter(_.nonEmpty).map(_.get)
     if(hasProgressNode.nonEmpty){
       Some(hasProgressNode.sum/hasProgressNode.size)
-    }else None
+    }else Some(-1)
+  }
+
+  def calculateTraffic: Option[Double] = {
+    val traffics = inputs.map(_.calculateTraffic).filter(_.nonEmpty).map(_.get)
+    if(traffics.nonEmpty) Some(traffics.sum/traffics.length)
+    else Some(-1)
   }
 
   def sourceUrlList: Set[String] = inputs.flatMap(_.sourceUrlList).toSet
@@ -86,10 +92,13 @@ case class SourceOp(dataFrameUrl: String) extends TransformOp {
     else if(dataFrame.getDataFrameStatistic.rowCount == -1L) None
     else {
       val progress = dataFrame.mapIterator[Double](iter =>
-        iter.consumeItems/dataFrame.getDataFrameStatistic.rowCount)
+        iter.consumeItems.toDouble/dataFrame.getDataFrameStatistic.rowCount)
       Some(progress)
     }
   }
+
+  override def calculateTraffic: Option[Double] =
+    Some(dataFrame.mapIterator[Double](iter => iter.itemsPerSecond))
 
   override def operationType: String = "SourceOp"
 

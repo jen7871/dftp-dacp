@@ -82,7 +82,7 @@ object DataStreamSource {
     }
   }
 
-  def filePath(dir: File, recursive: Boolean = false, baseurl: String = ""): DataStreamSource = {
+  def filePath(dir: File, recursive: Boolean = false): DataStreamSource = {
     var iterFiles: Iterator[(File, BasicFileAttributes)] = Iterator.empty
     iterFiles = if (recursive) DataUtils.listAllFilesWithAttrs(dir)
     else DataUtils.listFilesWithAttributes(dir).toIterator
@@ -92,7 +92,14 @@ object DataStreamSource {
         (file._1.getName, file._2.size(),
           DataUtils.getFileType(file._1), file._2.creationTime().toMillis,
           file._2.lastModifiedTime().toMillis, file._2.lastAccessTime().toMillis,
-          URIRef(baseurl + file._1.getAbsolutePath.stripPrefix(dir.getAbsolutePath)))
+          new URIRef {
+            override def getUrl: String = file._1.getAbsolutePath
+
+            override def getBlob: Blob = Blob.fromFile(file._1)
+
+            override def getDataFrame: DataFrame = filePath(file._1).dataFrame
+          }
+        )
       }
       .map(Row.fromTuple(_))
     new DataStreamSource {
@@ -130,12 +137,19 @@ object DataStreamSource {
     } else {
       val stream = DataUtils.listFilesWithAttributes(dfFile).toIterator
         .map(file => {
+          val urlRef = new URIRef {
+            override def getUrl: String = dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName
+
+            override def getBlob: Blob = Blob.fromFile(file._1)
+
+            override def getDataFrame: DataFrame = filePath(file._1, getUrl).dataFrame
+          }
           if (file._1.isDirectory) {
             (file._1.getName, -1L, "directory",
               file._2.creationTime().toMillis,
               file._2.lastModifiedTime().toMillis,
               file._2.lastAccessTime().toMillis,
-              URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
+              urlRef
             )
           } else {
             (
@@ -144,7 +158,7 @@ object DataStreamSource {
               file._2.creationTime().toMillis,
               file._2.lastModifiedTime().toMillis,
               file._2.lastAccessTime().toMillis,
-              URIRef((dataFrameUrl.stripSuffix("/") + File.separator + file._1.getName))
+              urlRef
             )
           }
         }).map(Row.fromTuple(_))

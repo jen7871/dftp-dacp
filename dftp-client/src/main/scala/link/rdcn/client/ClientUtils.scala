@@ -31,8 +31,6 @@ object ClientUtils {
         case t if t == Types.MinorType.VARCHAR.getType =>
           if (field.getMetadata.isEmpty) ValueType.StringType else ValueType.RefType
         case t if t == Types.MinorType.BIT.getType => ValueType.BooleanType
-        case t if t == Types.MinorType.VARBINARY.getType => if (field.getMetadata.isEmpty)
-          ValueType.BinaryType else ValueType.BlobType
         case _ => throw new UnsupportedOperationException(s"Unsupported Arrow type: ${field.getType}")
       }
       Column(field.getName, colType)
@@ -68,10 +66,6 @@ object ClientUtils {
           val metadata = new java.util.HashMap[String, String]()
           metadata.put("logicalType", "Url")
           new FieldType(column.nullable, ArrowType.Utf8.INSTANCE, null, metadata)
-        case BlobType =>
-          val metadata = new java.util.HashMap[String, String]()
-          metadata.put("logicalType", "blob")
-          new FieldType(column.nullable, new ArrowType.Binary(), null, metadata)
         case _ =>
           throw new UnsupportedOperationException(s"Unsupported type: ${column.colType}")
       }
@@ -100,42 +94,5 @@ object ClientUtils {
         }
       }
     }
-  }
-
-  def parseFlightActionResults(resultIterator: java.util.Iterator[Result], allocator: BufferAllocator): DataFrame = {
-    val allRows = scala.collection.mutable.ArrayBuffer[Row]()
-    var schema: StructType = StructType.empty
-    while (resultIterator.hasNext) {
-      val result = resultIterator.next()
-      val vectorSchemaRootReceived = getVectorSchemaRootFromBytes(result.getBody, allocator)
-      schema = arrowSchemaToStructType(vectorSchemaRootReceived.getSchema)
-      val rowCount = vectorSchemaRootReceived.getRowCount
-      val fieldVectors = vectorSchemaRootReceived.getFieldVectors.asScala
-
-      Seq.range(0, rowCount).foreach { rowIndex =>
-        val rowValues = fieldVectors.map { vector =>
-          if (vector.isNull(rowIndex)) {
-            null
-          } else {
-            vector match {
-              case v: VarCharVector =>
-                val strValue = v.getObject(rowIndex).toString
-                if (v.getField.getMetadata.isEmpty) strValue else URIRef(strValue)
-              case v: IntVector => v.get(rowIndex)
-              case v: BigIntVector => v.get(rowIndex)
-              case v: Float4Vector => v.get(rowIndex)
-              case v: Float8Vector => v.get(rowIndex)
-              case v: BitVector => v.get(rowIndex) != 0
-              case v: VarBinaryVector => v.get(rowIndex)
-              case _ => throw new UnsupportedOperationException(
-                s"Unsupported type: ${vector.getClass}"
-              )
-            }
-          }
-        }
-        allRows += Row.fromSeq(rowValues)
-      }
-    }
-    DefaultDataFrame(schema, ClosableIterator(allRows.toIterator)())
   }
 }

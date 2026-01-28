@@ -1,11 +1,11 @@
 package link.rdcn.client.dacp.demo
 
+import link.rdcn.JobFlowLogger
 import link.rdcn.client.DacpClient
 import link.rdcn.dacp.catalog.{CatalogService, CatalogServiceModule, CatalogServiceRequest, DacpCatalogModule}
 import link.rdcn.dacp.cook.DacpCookModule
 import link.rdcn.dacp.recipe.{ExecutionResult, Flow, SourceNode, Transformer11}
 import link.rdcn.dacp.user.{DataOperationType, PermissionService, PermissionServiceModule}
-import link.rdcn.operation.{DataFrameCall11, FunctionSerializer, SerializableFunction}
 import link.rdcn.server.{DftpActionRequest, DftpServer, DftpServerConfig, ServerContext}
 import link.rdcn.server.module.{BaseDftpModule, DataFrameProviderService, UserPasswordAuthModule}
 import link.rdcn.struct.ValueType.StringType
@@ -13,6 +13,7 @@ import link.rdcn.struct._
 import link.rdcn.user._
 import org.apache.jena.rdf.model.{Model, ModelFactory, Resource}
 import org.apache.jena.vocabulary.RDF
+import org.json.JSONObject
 import org.junit.jupiter.api.{AfterAll, BeforeAll, Test}
 
 object DacpClientDemo{
@@ -192,7 +193,7 @@ class DacpClientDemo {
     val dc = DacpClient.connect("dacp://0.0.0.0:3102", UsernamePassword("admin", "admin"))
 
     val udf = new Transformer11 {
-      override def transform(dataFrame: DataFrame): DataFrame = {
+      override def transform(dataFrame: DataFrame, flowLogger: JobFlowLogger, params: JSONObject): DataFrame = {
         dataFrame.limit(5)
       }
     }

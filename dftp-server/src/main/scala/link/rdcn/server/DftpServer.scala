@@ -172,7 +172,7 @@ class DftpServer(config: DftpServerConfig) extends Logging {
         .authHandler(new FlightServerAuthHandler)
         .build()
     }
-
+    logger.info(s"server started at ${config.protocolScheme}://${config.host}:${config.port}")
     modules.addModule(kernelModule)
     modules.init()
   }
@@ -328,6 +328,9 @@ class DftpServer(config: DftpServerConfig) extends Logging {
                 batch.close()
               }
             })
+            while (!listener.isReady()) {
+              LockSupport.parkNanos(1)
+            }
             listener.completed()
           } catch {
             case e: Throwable => listener.error(e)
@@ -396,8 +399,6 @@ class DftpServer(config: DftpServerConfig) extends Logging {
             case putTicket if putBlobParametersCache.contains(putTicket) =>
               new DftpPutBlobRequest {
                 override def getBlob(): Blob = new Blob {
-                  override val uri: DftpTicket = s"/$putTicket"
-
                   override def offerStream[T](consume: InputStream => T): T = {
                     val inputStream = if(flightStream.next()) {
                       val stream: Iterator[Array[Byte]] = ServerUtils.flightStreamToRowIterator(flightStream)
@@ -420,7 +421,6 @@ class DftpServer(config: DftpServerConfig) extends Logging {
                   putBlobParametersCache.get(putTicket).get
               }
           }
-
 
           kernelModule.putStream(request, response)
         }
@@ -468,10 +468,7 @@ class DftpServer(config: DftpServerConfig) extends Logging {
             case v: Array[Byte] => vec.asInstanceOf[VarBinaryVector].setSafe(i, v)
             case null => vec.setNull(i)
             case v: URIRef =>
-              val bytes = v.url.getBytes("UTF-8")
-              vec.asInstanceOf[VarCharVector].setSafe(i, bytes)
-            case v: Blob =>
-              val bytes = s"${config.protocolScheme}://${config.host}:${config.port}/blob/${UrlValidator.extractPath(v.uri)}".getBytes("UTF-8")
+              val bytes = v.getUrl.getBytes("UTF-8")
               vec.asInstanceOf[VarCharVector].setSafe(i, bytes)
             case _ => throw new UnsupportedOperationException("Type not supported")
           }

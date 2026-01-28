@@ -1,5 +1,6 @@
 package link.rdcn.client
 
+import link.rdcn.JobFlowLogger
 import link.rdcn.dacp.catalog.CatalogActionMethodType
 import link.rdcn.dacp.cook.{CookActionMethodType, JobStatus}
 import link.rdcn.dacp.optree._
@@ -134,7 +135,7 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
 
   def getJobStatus(jobId: String): JobStatus = {
     val actionResult = doAction(CookActionMethodType.GET_JOB_STATUS, new JSONObject().put("jobId", jobId))
-    JobStatus.fromString(actionResult.getResultJson().getString("status"))
+    JobStatus.fromJSON(actionResult.getResultJson())
   }
 
   def getJobExecuteProcess(jobId: String): Double = {
@@ -167,27 +168,30 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
   private def transformFlowToOperation(path: FlowPath): TransformOp = {
     path.node match {
       case f: Transformer11 =>
-        val genericFunctionCall = DataFrameCall11(new SerializableFunction[DataFrame, DataFrame] {
-          override def apply(v1: DataFrame): DataFrame = f.transform(v1)
-        })
-        val transformerNode: TransformerNode = TransformerNode(TransformFunctionWrapper.getJavaSerialized(genericFunctionCall),
+        val flowGenericFunctionCall: FlowGenericFunctionCall = DataFrameCall11(
+          new SerializableFunction[(DataFrame, JobFlowLogger, JSONObject), DataFrame] {
+            override def apply(v1: (DataFrame, JobFlowLogger, JSONObject)): DataFrame =
+              f.transform(v1._1, v1._2, v1._3)
+          })
+        val transformerNode: TransformerNode = TransformerNode(
+          TransformFunctionWrapper.getJavaSerialized(flowGenericFunctionCall),
           transformFlowToOperation(path.children.head))
         transformerNode
       case f: Transformer21 =>
-        val genericFunctionCall = DataFrameCall21(new SerializableFunction[(DataFrame, DataFrame), DataFrame] {
-          override def apply(v1: (DataFrame, DataFrame)): DataFrame = f.transform(v1._1, v1._2)
-        })
+        val genericFunctionCall = DataFrameCall21(
+          new SerializableFunction[((DataFrame, DataFrame), JobFlowLogger, JSONObject), DataFrame] {
+            override def apply(v1: ((DataFrame, DataFrame), JobFlowLogger, JSONObject)): DataFrame = {
+              f.transform(v1._1, v1._2, v1._3)
+            }
+          })
         val leftInput = transformFlowToOperation(path.children.head)
         val rightInput = transformFlowToOperation(path.children.last)
-        val transformerNode: TransformerNode = TransformerNode(TransformFunctionWrapper.getJavaSerialized(genericFunctionCall), leftInput, rightInput)
+        val transformerNode: TransformerNode = TransformerNode(TransformFunctionWrapper.getJavaSerialized(genericFunctionCall),
+          leftInput, rightInput)
         transformerNode
       case node: RepositoryNode =>
-        val jo = new JSONObject()
-        jo.put("type", LangTypeV2.REPOSITORY_OPERATOR.name)
-        jo.put("functionName", node.functionName)
-        jo.put("functionVersion", node.functionVersion.orNull)
         val transformerNode: TransformerNode = TransformerNode(
-          TransformFunctionWrapper.fromJsonObject(jo).asInstanceOf[RepositoryOperator],
+          RepositoryOperator(node.functionName, node.functionVersion, node.params, node.id),
           path.children.map(transformFlowToOperation(_)): _*)
         transformerNode
       case FifoFileBundleFlowNode(command, inputFilePath, outputFilePath, dockerContainer) =>
@@ -216,39 +220,23 @@ object DacpClient {
   val protocolSchema = "dacp"
   private val urlValidator = UrlValidator(protocolSchema)
 
-  def connect(url: String, credentials: Credentials = null, useUnifiedLogin: Boolean = false): DacpClient = {
+  def connect(url: String, credentials: Credentials = null): DacpClient = {
     urlValidator.validate(url) match {
       case Right(parsed) =>
         val client = new DacpClient(parsed._1, parsed._2.getOrElse(3101))
-        if(credentials != null) {
-          if(useUnifiedLogin){
-            credentials match {
-              case AnonymousCredentials => client.login(credentials)
-              case c: UsernamePassword => client.login(OdcAuthClient.requestAccessToken(c))
-              case _ => throw new IllegalArgumentException(s"the $credentials is not supported")
-            }
-          }else client.login(credentials)
-        }
+        if(credentials != null) client.login(credentials)
         client
       case Left(err) =>
         throw new IllegalArgumentException(s"Invalid DACP URL: $err")
     }
   }
 
-  def connectTLS(url: String, file: File, credentials: Credentials = null, useUnifiedLogin: Boolean = false): DacpClient = {
+  def connectTLS(url: String, file: File, credentials: Credentials = null): DacpClient = {
     System.setProperty("javax.net.ssl.trustStore", file.getAbsolutePath)
     urlValidator.validate(url) match {
       case Right(parsed) =>
         val client = new DacpClient(parsed._1, parsed._2.getOrElse(3101), true)
-        if(credentials != null) {
-          if(useUnifiedLogin){
-            credentials match {
-              case AnonymousCredentials => client.login(credentials)
-              case c: UsernamePassword => client.login(OdcAuthClient.requestAccessToken(c))
-              case _ => throw new IllegalArgumentException(s"the $credentials is not supported")
-            }
-          }else client.login(credentials)
-        }
+        if(credentials != null) client.login(credentials)
         client
       case Left(err) =>
         throw new IllegalArgumentException(s"Invalid DACP URL: $err")

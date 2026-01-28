@@ -2,19 +2,20 @@ package link.rdcn.dacp.cook
 
 import link.rdcn.Logging
 import link.rdcn.client.{DftpClient, UrlValidator}
-import link.rdcn.dacp.cook.JobStatus.{COMPLETE, RUNNING}
+import link.rdcn.dacp.cook.JobStatus.{COMPLETE, FAILED, RUNNING}
 import link.rdcn.dacp.optree._
 import link.rdcn.dacp.recipe.ExecutionResult
 import link.rdcn.operation.TransformOp
 import link.rdcn.server._
 import link.rdcn.server.module._
-import link.rdcn.struct.{Blob, DataFrame, DataFrameMetaData, DefaultDataFrame, Row, StructType}
+import link.rdcn.struct.{Blob, DataFrame, DataFrameMetaData, DefaultDataFrame, StreamState, Row, StructType}
 import link.rdcn.user.{Credentials, UserPrincipal}
 import link.rdcn.util.DataUtils
 import org.json.JSONObject
 
 import java.time.format.DateTimeFormatter
 import java.time.{ZoneId, ZonedDateTime}
+import java.util.concurrent.{Executors, ScheduledFuture, TimeUnit}
 import java.util.concurrent.atomic.AtomicLong
 import scala.collection.concurrent.TrieMap
 
@@ -56,7 +57,9 @@ class DacpCookModule extends DftpModule with Logging {
   override def init(anchor: Anchor, serverContext: ServerContext): Unit = {
     this.serverContext = serverContext
 
-    def flowExecutionContext(userPrincipal: UserPrincipal, response: DftpResponse): FlowExecutionContext = new FlowExecutionContext {
+    def flowExecutionContext(userPrincipal: UserPrincipal, response: DftpResponse, jobId: String): FlowExecutionContext = new FlowExecutionContext {
+
+      override def getJobId(): String = jobId
 
       override def fairdHome: String = serverContext.getDftpHome().getOrElse("./")
 
@@ -134,8 +137,10 @@ class DacpCookModule extends DftpModule with Logging {
                   case CookActionMethodType.SUBMIT_FLOW =>
                     val jobId = getRecipeId()
                     val transformOps: Seq[TransformOp] = TransformTree.fromFlowdJSONString(paramsJsonObject.toString)
-                    val ctx = flowExecutionContext(request.getUserPrincipal(), response)
+
+                    val ctx = flowExecutionContext(request.getUserPrincipal(), response, jobId)
                     val dfs = transformOps.map(_.execute(ctx))
+
                     val executeResult = new ExecutionResult {
                       override def single(): DataFrame = dfs.head
 
@@ -145,12 +150,19 @@ class DacpCookModule extends DftpModule with Logging {
                         case (dataFrame, id) => (id.toString, dataFrame)
                       }.toMap
                     }
+                    val flowProgressLogger = new FlowProgressLogger(jobId, () => getFlowProcess(transformOps) * 100,
+                      () => getFlowThroughput(transformOps),
+                      () => getFlowJobStatus(executeResult)
+                    )
+                    flowLogger(jobId).info(s"flow $jobId submitted")
+                    flowProgressLogger.start()
+
                     jobResultCache.put(jobId, executeResult)
                     jobTransformOpsCache.put(jobId, transformOps)
                     response.sendJSONObject(new JSONObject().put("jobId", jobId))
                   case CookActionMethodType.SUBMIT_RECIPE =>
                     val transformOp = TransformTree.fromJSONObject(paramsJsonObject)
-                    val dataframe = transformOp.execute(flowExecutionContext(request.getUserPrincipal(), response))
+                    val dataframe = transformOp.execute(flowExecutionContext(request.getUserPrincipal(), response, null))
                     val dataFrameResponse = new DataFrameResponse {
                       override def getDataFrameMetaData: DataFrameMetaData = new DataFrameMetaData {
                         override def getDataFrameSchema: StructType = dataframe.schema
@@ -166,9 +178,8 @@ class DacpCookModule extends DftpModule with Logging {
                     }
                     val executionResult = jobResultCache.get(jobId)
                     if(executionResult.nonEmpty){
-                      val df = executionResult.get.map().values.toList.find(df => df.mapIterator(_.hasNext))
-                      if(df.nonEmpty) response.sendJSONObject(new JSONObject().put("status", RUNNING.name))
-                      else response.sendJSONObject(new JSONObject().put("status", COMPLETE.name))
+                      val status = getFlowJobStatus(executionResult.get)
+                      response.sendJSONObject(status.toJSON())
                     }else response.sendError(404, s"job $jobId not exist")
                   case CookActionMethodType.GET_JOB_EXECUTE_RESULT =>
                     val jobId = paramsJsonObject.optString("jobId", null)
@@ -196,14 +207,7 @@ class DacpCookModule extends DftpModule with Logging {
                     }
                     val transformOps = jobTransformOpsCache.get(jobId)
                     if(transformOps.isEmpty) response.sendError(404, s"job $jobId not exist")
-                    else{
-                      val processSeq: Seq[Double] = transformOps.get.map(_.executionProgress).filter(_.nonEmpty).map(_.get)
-                      if(processSeq.isEmpty) response.sendError(400, s"Unable to calculate ${transformOps.mkString(",")} progress")
-                      else {
-                        val process = processSeq.sum/processSeq.length
-                        response.sendJSONObject(new JSONObject().put("process", process))
-                      }
-                    }
+                    else response.sendJSONObject(new JSONObject().put("process", getFlowProcess(transformOps.get)))
                   case _ => response.sendError(400, "")
                 }
               }
@@ -218,12 +222,96 @@ class DacpCookModule extends DftpModule with Logging {
         eventHub.fireEvent(CollectGetStreamMethodEvent(getMethods))
       }
     })
+
+    def getFlowProcess(transformOps: Seq[TransformOp]): Double = {
+      val processSeq: Seq[Double] = transformOps.map(_.executionProgress).filter(_.nonEmpty).map(_.get)
+      if(processSeq.isEmpty) -1 else processSeq.sum/processSeq.length
+    }
+
+    def getFlowThroughput(transformOps: Seq[TransformOp]): Long = {
+      val traffics = transformOps.map(_.calculateTraffic).filter(_.nonEmpty).map(_.get)
+      if(traffics.isEmpty) -1L else Math.round(traffics.sum / traffics.length)
+    }
+
+    def getFlowJobStatus(executionResult: ExecutionResult): JobStatus = {
+      val status = executionResult.map().values.toList.map(df => df.mapIterator(iter => {
+        iter.currentState
+      }))
+      val failed = status.find(_.isFailed)
+      if(failed.nonEmpty) FAILED(failed.get.asInstanceOf[StreamState.Failed].cause)
+      else if(status.contains(StreamState.Running)) RUNNING
+      else COMPLETE
+    }
   }
 
   private def getRecipeId(): String = {
     val timestamp = ZonedDateTime.now(ZoneId.of("UTC")).format(formatter)
     val seq = recipeCounter.incrementAndGet()
     s"job-${timestamp}-${seq}"
+  }
+
+  private class FlowProgressLogger(
+                                    jobId: String,
+                                    getProgressPercent: () => Double,
+                                    getThroughput: () => Long,           // rows / second
+                                    getFlowJobStatus: () => JobStatus,
+                                    intervalSeconds: Long = 1
+                                  ) {
+
+    private val scheduler =
+      Executors.newSingleThreadScheduledExecutor { r =>
+        val t = new Thread(r, s"flow-progress-logger-$jobId")
+        t.setDaemon(true)
+        t
+      }
+
+    @volatile private var future: ScheduledFuture[_] = _
+
+    def start(): Unit = {
+      future = scheduler.scheduleAtFixedRate(
+        () => logOnce(),
+        0,
+        intervalSeconds,
+        TimeUnit.SECONDS
+      )
+    }
+
+    def stop(): Unit = {
+      if (future != null) {
+        future.cancel(false)
+      }
+      scheduler.shutdown()
+    }
+
+    private def logOnce(): Unit = {
+      try {
+        flowLogger(jobId).info(
+          f"JobProgress | jobId=$jobId | progress=${getProgressPercent()}%.2f%% | throughput=${getThroughput()} rows/s"
+        )
+
+        try{
+          val jobStatus = getFlowJobStatus()
+          jobStatus match {
+            case RUNNING =>
+            case COMPLETE =>
+              flowLogger(jobId).info(
+                f"JobProgress | jobId=$jobId | progress=${getProgressPercent()}%.2f%% | throughput=${getThroughput()} rows/s"
+              )
+              flowLogger(jobId).info(s"flow $jobId completed")
+              stop()
+            case FAILED(e) =>
+              flowLogger(jobId).error(s"flow $jobId failed")
+              logger.error(e)
+              stop()
+          }
+        }
+
+      } catch {
+        case e: Throwable =>
+          logger.warn(s"Failed to fetch job metrics, jobId=$jobId", e)
+          logger.error(e)
+      }
+    }
   }
 
   override def destroy(): Unit = {}
