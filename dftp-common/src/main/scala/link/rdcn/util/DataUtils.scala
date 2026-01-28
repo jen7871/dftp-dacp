@@ -218,7 +218,7 @@ object DataUtils extends Logging{
     val rowCount = sheet.getPhysicalNumberOfRows
     workbook.close()
     fis.close()
-    rowCount
+    rowCount - 1
   }
 
   /** 按 schema 读取所有数据为 Iterator[List[Any]] */

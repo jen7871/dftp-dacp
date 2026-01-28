@@ -1,8 +1,10 @@
 package link.rdcn.dacp.recipe
 
+import link.rdcn.JobFlowLogger
 import link.rdcn.dacp.optree.fifo.DockerContainer
 import link.rdcn.dacp.optree.fifo.FileType.FileType
 import link.rdcn.struct.DataFrame
+import org.json.JSONObject
 
 /**
  * @Author renhao
@@ -13,17 +15,19 @@ import link.rdcn.struct.DataFrame
 trait FlowNode
 
 trait Transformer11 extends FlowNode with Serializable {
-  def transform(dataFrame: DataFrame): DataFrame
+  def transform(dataFrame: DataFrame, flowLogger: JobFlowLogger, params: JSONObject): DataFrame
 }
 
 trait Transformer21 extends FlowNode with Serializable {
-  def transform(leftDataFrame: DataFrame, rightDataFrame: DataFrame): DataFrame
+  def transform(dataFrame: (DataFrame, DataFrame)
+                , flowLogger: JobFlowLogger, params: JSONObject): DataFrame
 }
 
 case class RepositoryNode(
                            functionName: String,
                            functionVersion: Option[String],
-                           args: Map[String, String] = Map.empty
+                           id: String,
+                           params: JSONObject = new JSONObject()
                          ) extends FlowNode
 
 case class RemoteDataFrameFlowNode(
@@ -58,11 +62,15 @@ object FlowNode {
   }
 
   def ofScalaFunction(func: DataFrame => DataFrame): Transformer11 = {
-    (dataFrame: DataFrame) => func(dataFrame)
+    new Transformer11 {
+      override def transform(dataFrame: DataFrame, flowLogger: JobFlowLogger, params: JSONObject): DataFrame = {
+        func(dataFrame)
+      }
+    }
   }
 
-  def stocked(functionId: String, functionVersion: Option[String], args: Map[String, String] = Map.empty): RepositoryNode = {
-    RepositoryNode(functionId, functionVersion, args)
+  def stocked(functionId: String, functionVersion: Option[String], args: JSONObject = new JSONObject(), id: Option[String] = None): RepositoryNode = {
+    RepositoryNode(functionId, functionVersion, id.getOrElse(""), args)
   }
 
 }

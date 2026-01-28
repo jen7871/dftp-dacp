@@ -1,5 +1,6 @@
 package link.rdcn.dacp.optree
 
+import link.rdcn.Logging
 import link.rdcn.dacp.optree.fifo.FileType
 import link.rdcn.operation._
 import link.rdcn.struct.DataFrame
@@ -70,7 +71,7 @@ object TransformTree {
     def recursiveBuild(currentId: String): TransformOp = {
       val nodeJson = nodesMap(currentId)
       val nodeType = nodeJson.getString("type")
-      val properties = nodeJson.optJSONObject("properties", new JSONObject())
+//      val properties = nodeJson.optJSONObject("properties", new JSONObject())
 
       val edges = incomingEdges.getOrElse(currentId, mutable.Buffer.empty)
 
@@ -80,15 +81,18 @@ object TransformTree {
 
       nodeType match {
         case "SourceNode" =>
-          val path = if (properties.has("dataFrameName")) properties.getString("dataFrameName")
-          else properties.optString("path", "")
+          val path = if (nodeJson.has("dataFrameName")) nodeJson.getString("dataFrameName")
+          else nodeJson.optString("path", "")
           SourceOp(path)
 
         case "RepositoryNode" =>
           val jo = new JSONObject()
-          jo.put("type", LangTypeV2.REPOSITORY_OPERATOR.name)
-          jo.put("functionName", properties.get("name").asInstanceOf[String])
-          jo.put("functionVersion", properties.get("version").asInstanceOf[String])
+            .put("type", LangTypeV2.REPOSITORY_OPERATOR.name)
+            .put("functionName", nodeJson.get("name").asInstanceOf[String])
+            .put("functionVersion", nodeJson.get("version").asInstanceOf[String])
+            .put("params", nodeJson.getJSONObject("parameters"))
+            .put("id", nodeJson.getString("id"))
+
 
           TransformerNode(
             TransformFunctionWrapper.fromJsonObject(jo).asInstanceOf[RepositoryOperator],
@@ -97,9 +101,9 @@ object TransformTree {
 
         case "RemoteDataFrameFlowNode" =>
           RemoteSourceProxyOp(
-            properties.get("baseUrl").asInstanceOf[String],
-            fromFlowdJSONString(new JSONObject().put("flow", new JSONObject(properties.get("flow").asInstanceOf[String])).toString).head,
-            properties.get("certificate").asInstanceOf[String]
+            nodeJson.get("baseUrl").asInstanceOf[String],
+            fromFlowdJSONString(new JSONObject().put("flow", nodeJson.getJSONObject("flow")).toString).head,
+            nodeJson.get("certificate").asInstanceOf[String]
           )
 
         case other => throw new IllegalArgumentException(s"Unknown FlowNode type: $other at id: $currentId")
@@ -170,7 +174,7 @@ case class FiFoFileNode(transformOp: TransformOp*) extends TransformOp
 }
 
 case class TransformerNode(transformFunctionWrapperT: TransformFunctionWrapper, inputTransforms: TransformOp*)
-  extends TransformOp {
+  extends TransformOp with Logging {
 
   var transformFunctionWrapper: TransformFunctionWrapper = _
 

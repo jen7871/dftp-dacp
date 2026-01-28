@@ -6,6 +6,24 @@ package link.rdcn.struct
  * @Data 2025/7/21 17:20
  * @Modified By:
  */
+sealed trait StreamState {
+  def isFailed: Boolean = this match {
+    case StreamState.Failed(_) => true
+    case _ => false
+  }
+}
+
+object StreamState {
+  case object Running extends StreamState
+
+  case object Completed extends StreamState
+
+  case class Failed(cause: Throwable) extends StreamState
+
+  case object Closed extends StreamState
+}
+
+
 case class ClosableIterator[T](
                                 underlying: Iterator[T],
                                 val onClose: () => Unit,
@@ -13,36 +31,62 @@ case class ClosableIterator[T](
                               ) extends Iterator[T] with AutoCloseable {
 
   private var closed = false
-  //避免多次触发close
-  private var hasMore = true
 
   private val startTime: Long = System.currentTimeMillis()
   private var itemCount: Long = 0L
 
+  @volatile
+  private var state: StreamState = StreamState.Running
+
+  def currentState: StreamState = state
+
+  def isCompleted: Boolean = state == StreamState.Completed
+  def isFailed: Boolean = state.isInstanceOf[StreamState.Failed]
+  def hasMoreData: Boolean = state == StreamState.Running
+
   override def hasNext: Boolean = {
-    if (!hasMore || closed) return false
-    val more = underlying.hasNext
-    if (!more && !isFileList) {
-      hasMore = false
-      close()
+    if (closed || state != StreamState.Running) return false
+    try {
+      val more = underlying.hasNext
+      if (!more && !isFileList) {
+        state = StreamState.Completed
+        close()
+      }
+      more
+    } catch {
+      case ex: Throwable =>
+        state = StreamState.Failed(ex)
+        close()
+        throw ex
     }
-    more
   }
 
+
   override def next(): T = {
-    if (!hasNext && !isFileList) throw new NoSuchElementException("next on empty iterator")
-    val value = underlying.next()
-    if (!underlying.hasNext && !isFileList) {
-      hasMore = false
-      close()
+    if (!hasNext && !isFileList)
+      throw new NoSuchElementException("next on empty iterator")
+
+    try {
+      val value = underlying.next()
+      itemCount += 1
+
+      if (!underlying.hasNext && !isFileList) {
+        state = StreamState.Completed
+        close()
+      }
+      value
+    } catch {
+      case ex: Throwable =>
+        state = StreamState.Failed(ex)
+        close()
+        throw ex
     }
-    itemCount += 1
-    value
   }
+
 
   def itemsPerSecond: Double = {
     val elapsedSeconds = (System.currentTimeMillis() - startTime) / 1000.0
-    if (elapsedSeconds > 0) itemCount / elapsedSeconds else 0
+    itemCount.toDouble / elapsedSeconds
   }
 
   def consumeItems: Long = itemCount
@@ -50,9 +94,14 @@ case class ClosableIterator[T](
   override def close(): Unit = {
     if (!closed) {
       closed = true
+      if (state == StreamState.Running) {
+        state = StreamState.Closed
+      }
       try onClose()
       catch {
-        case ex: Throwable => throw new Exception(s"[ClosableIterator] Error during close: ${ex.getMessage}")
+        case ex: Throwable =>
+          state = StreamState.Failed(ex)
+          throw new Exception(s"[ClosableIterator] Error during close: ${ex.getMessage}", ex)
       }
     }
   }

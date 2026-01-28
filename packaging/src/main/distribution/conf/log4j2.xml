@@ -1,20 +1,36 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="WARN">
     <Appenders>
+        <!-- Console 输出 -->
         <Console name="STDOUT" target="SYSTEM_OUT">
-            <PatternLayout pattern="%d{yyyy-MM-dd HH:mm:ss} %-5p %c{1}:%L - %m%n"/>
+            <PatternLayout
+                    pattern="%d{yyyy-MM-dd HH:mm:ss} %-5p %c{1}:%L - %m%n"/>
         </Console>
 
-<!--        <Http name="FluentdHttp" url="http://10.0.82.143:8888/0.0.0.0:3101" method="POST">-->
-<!--            &lt;!&ndash; 可选：JSON格式发送，方便td-agent处理 &ndash;&gt;-->
-<!--            <PatternLayout pattern='{"timestamp":"%d{yyyy-MM-dd HH:mm:ss}","level":"%p","logger":"%c{1}","line":%L,"message":"%m"}'/>-->
-<!--        </Http>-->
+        <!-- HTTP 远端日志（Fluentd / Log Collector） -->
+        <Http name="FluentdHttp"
+              url="http://10.0.82.143:8888/"
+              method="POST"
+              connectTimeoutMillis="3000"
+              readTimeoutMillis="5000">
+            <PatternLayout pattern='{"timestamp":"%d{yyyy-MM-dd HH:mm:ss}","level":"%p","logger":"%c","thread":"%t", "payload": %m}'/>
+        </Http>
+
     </Appenders>
 
     <Loggers>
+
+        <!-- 专用 HTTP Logger -->
+        <Logger name="FLOW_LOGGER"
+                level="info"
+                additivity="true">
+            <AppenderRef ref="FluentdHttp"/>
+        </Logger>
+
+        <!-- Root Logger（默认日志） -->
         <Root level="info">
             <AppenderRef ref="STDOUT"/>
-            <AppenderRef ref="FluentdHttp"/>
         </Root>
+
     </Loggers>
 </Configuration>

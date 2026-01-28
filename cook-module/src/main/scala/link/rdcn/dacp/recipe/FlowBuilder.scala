@@ -43,7 +43,7 @@ object FlowBuilder {
         RepositoryNode(
           stringProps.get("name").get,
           stringProps.get("version"),
-          Map.empty // 包含 version 等其他属性
+          stringProps.get("id").get
         )
 
       case "RemoteDataFrameFlowNode" =>

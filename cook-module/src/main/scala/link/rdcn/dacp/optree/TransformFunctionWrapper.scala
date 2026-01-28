@@ -1,10 +1,10 @@
 package link.rdcn.dacp.optree
 
-import link.rdcn.Logging
+import link.rdcn.{JobFlowLogger, Logging}
 import link.rdcn.dacp.optree.fifo.FileType.FileType
 import link.rdcn.dacp.optree.fifo._
 import link.rdcn.dacp.recipe.{Transformer11, Transformer21}
-import link.rdcn.operation.{ExecutionContext, FunctionSerializer, FunctionWrapper, GenericFunctionCall}
+import link.rdcn.operation.{ExecutionContext, FlowGenericFunctionCall, FunctionSerializer, FunctionWrapper, GenericFunctionCall}
 import link.rdcn.struct.ValueType.BinaryType
 import link.rdcn.struct._
 import link.rdcn.util.DataUtils
@@ -45,9 +45,11 @@ object TransformFunctionWrapper {
       case LangTypeV2.JAVA_BIN.name => JavaBin(jo.getString("serializedBase64"))
       case LangTypeV2.JAVA_CODE.name => JavaCode(jo.getString("javaCodeString"))
       case LangTypeV2.PYTHON_BIN.name => PythonBin(jo.getString("functionName"), jo.getString("whlPath"), jo.getInt("batchSize"))
-      case LangTypeV2.JAVA_JAR.name => JavaJar(jo.getString("jarPath"), jo.getString("functionName"), jo.getString("className"))
+      case LangTypeV2.JAVA_JAR.name => JavaJar(jo.getString("jarPath"), jo.getString("functionName"),
+        jo.getString("className"), jo.getJSONObject("params"), jo.getString("id"))
       case LangTypeV2.CPP_BIN.name => CppBin(jo.getString("cppPath"))
-      case LangTypeV2.REPOSITORY_OPERATOR.name => RepositoryOperator(jo.getString("functionName"), Try(jo.getString("functionVersion")).toOption)
+      case LangTypeV2.REPOSITORY_OPERATOR.name => RepositoryOperator(jo.getString("functionName"),
+        Try(jo.getString("functionVersion")).toOption, jo.getJSONObject("params"), jo.getString("id"))
       case LangTypeV2.FILE_REPOSITORY_BUNDLE.name => {
         val command = jo.getJSONArray("command").toList.asScala.map(_.toString)
         val inputFilePath = jo.getJSONArray("inputFilePath").toList.asScala
@@ -69,7 +71,7 @@ object TransformFunctionWrapper {
     }
   }
 
-  def getJavaSerialized(functionCall: GenericFunctionCall): JavaBin = {
+  def getJavaSerialized(functionCall: FlowGenericFunctionCall): JavaBin = {
     val objectBytes = FunctionSerializer.serialize(functionCall)
     val base64Str: String = java.util.Base64.getEncoder.encodeToString(objectBytes)
     JavaBin(base64Str)
@@ -125,11 +127,11 @@ case class PythonCode(code: String, batchSize: Int = 100) extends TransformFunct
   }
 }
 
-case class JavaBin(serializedBase64: String) extends TransformFunctionWrapper {
+case class JavaBin(serializedBase64: String) extends TransformFunctionWrapper with Logging {
 
-  lazy val genericFunctionCall: GenericFunctionCall = {
+  lazy val flowGenericFunctionCall: FlowGenericFunctionCall = {
     val restoredBytes = java.util.Base64.getDecoder.decode(serializedBase64)
-    FunctionSerializer.deserialize(restoredBytes).asInstanceOf[GenericFunctionCall]
+    FunctionSerializer.deserialize(restoredBytes).asInstanceOf[FlowGenericFunctionCall]
   }
 
   override def toJson: JSONObject = {
@@ -141,9 +143,11 @@ case class JavaBin(serializedBase64: String) extends TransformFunctionWrapper {
   override def toString(): String = "Java_bin Function"
 
   override def applyToDataFrames(inputs: Seq[DataFrame], ctx: FlowExecutionContext): DataFrame = {
+    val jobFlowLogger = flowLogger(ctx.getJobId(), "")
+    val params = new JSONObject()
     inputs.length match {
-      case 1 => genericFunctionCall.transform(inputs.head).asInstanceOf[DataFrame]
-      case 2 => genericFunctionCall.transform((inputs.head, inputs.last)).asInstanceOf[DataFrame]
+      case 1 => flowGenericFunctionCall.transform(inputs.head, jobFlowLogger, params).asInstanceOf[DataFrame]
+      case 2 => flowGenericFunctionCall.transform((inputs.head, inputs.last), jobFlowLogger, params).asInstanceOf[DataFrame]
       case other => throw new IllegalArgumentException(s"Unsupported inputs DataFrames length: $other")
     }
   }
@@ -220,13 +224,17 @@ case class PythonBin(functionName: String, whlPath: String, batchSize: Int = 100
   }
 }
 
-case class JavaJar(jarPath: String, functionName: String, className: String) extends TransformFunctionWrapper {
+case class JavaJar(jarPath: String, functionName: String, className: String, params: JSONObject, id: String)
+  extends TransformFunctionWrapper with Logging
+{
   override def toJson: JSONObject = {
     val jo = new JSONObject()
     jo.put("type", LangTypeV2.JAVA_JAR.name)
       .put("jarPath", jarPath)
       .put("functionName", functionName)
       .put("className", className)
+      .put("params", params)
+      .put("id", id)
   }
 
   override def applyToDataFrames(input: Seq[DataFrame], ctx: FlowExecutionContext): DataFrame = {
@@ -234,17 +242,18 @@ case class JavaJar(jarPath: String, functionName: String, className: String) ext
     val urls = Array(jarFile.toURI.toURL)
     val parentLoader = getClass.getClassLoader
     val pluginLoader = new PluginClassLoader(urls, parentLoader)
+    val jobFlowLogger: JobFlowLogger = flowLogger(ctx.getJobId, id)
     functionName match {
       case "Transformer11" =>
         val serviceLoader = ServiceLoader.load(classOf[Transformer11], pluginLoader).iterator().asScala.toList
         serviceLoader.find(instance => instance.getClass.getName == className)
-          .map(instance => instance.transform(input.head)).getOrElse(
+          .map(instance => instance.transform(input.head, jobFlowLogger, params)).getOrElse(
             throw new Exception(s"No $className Transformer11 implementation class was found in this jar $jarPath")
           )
       case "Transformer21" =>
         val serviceLoader = ServiceLoader.load(classOf[Transformer21], pluginLoader).iterator()
         if (!serviceLoader.hasNext) throw new Exception(s"No Transformer21 implementation class was found in this jar $jarPath")
-        serviceLoader.next().transform(input.head, input.last)
+        serviceLoader.next().transform((input.head, input.last), jobFlowLogger, params)
       case other => throw new IllegalArgumentException(s"Unsupported input function type: $other")
     }
   }
@@ -354,18 +363,23 @@ case class CppBin(cppPath: String) extends TransformFunctionWrapper {
 }
 
 case class RepositoryOperator(functionName: String,
-                              functionVersion: Option[String] = None) extends TransformFunctionWrapper {
+                              functionVersion: Option[String] = None,
+                              params: JSONObject = new JSONObject(),
+                              id: String = ""
+                             ) extends TransformFunctionWrapper {
 
   override def toJson: JSONObject = new JSONObject().put("type", LangTypeV2.REPOSITORY_OPERATOR.name)
     .put("functionName", functionName)
     .put("functionVersion", functionVersion.orNull)
+    .put("params", params)
+    .put("id", id)
 
   var transformFunctionWrapper: TransformFunctionWrapper = _
 
   override def applyToDataFrames(inputs: Seq[DataFrame], ctx: FlowExecutionContext): DataFrame = {
     val transformFunctionWrapper = ctx.getRepositoryClient()
       .getOrElse(throw new Exception("Operator repository client not found. Please configure the client settings."))
-      .parseTransformFunctionWrapper(functionName, functionVersion, ctx)
+      .parseTransformFunctionWrapper(functionName, functionVersion, params, ctx, id)
     this.transformFunctionWrapper = transformFunctionWrapper
     transformFunctionWrapper.applyToDataFrames(inputs, ctx)
   }

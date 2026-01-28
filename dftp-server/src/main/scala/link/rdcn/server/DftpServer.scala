@@ -30,7 +30,6 @@ import java.util.concurrent.locks.LockSupport
 import java.util.{Optional, UUID}
 import scala.collection.JavaConverters._
 import scala.collection.concurrent.TrieMap
-import scala.concurrent.duration.Duration
 
 /**
  * @Author renhao
@@ -173,7 +172,7 @@ class DftpServer(config: DftpServerConfig) extends Logging {
         .authHandler(new FlightServerAuthHandler)
         .build()
     }
-
+    logger.info(s"server started at ${config.protocolScheme}://${config.host}:${config.port}")
     modules.addModule(kernelModule)
     modules.init()
   }
