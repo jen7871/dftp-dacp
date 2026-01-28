@@ -71,6 +71,8 @@ class TransformTreeTest {
     override def getRepositoryClient(): Option[OperatorRepository] = None
 
     override def loadSourceDataFrame(dataFrameNameUrl: String): Option[DataFrame] = None
+
+    override def getJobId(): String = ""
   }
 
   // --- Tests ---

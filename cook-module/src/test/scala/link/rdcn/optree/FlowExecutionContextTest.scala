@@ -24,6 +24,9 @@ class FlowExecutionContextTest {
   // --- Local Mocks ---
   class MockFlowExecutionContext extends FlowExecutionContext {
 
+    // 实现了缺失的 getJobId 方法
+    override def getJobId(): String = "mock-job-id"
+
     override def fairdHome: String = "/mock/faird/home"
     override def pythonHome: String = System.getProperty("python.home", "/mock/python/home")
     override def isAsyncEnabled(wrapper: TransformFunctionWrapper): Boolean = false
@@ -47,7 +50,7 @@ class FlowExecutionContextTest {
 
   @Test
   def testRegisterAndGetAsyncResult(): Unit = {
-    val mockOp = new MockTransformerNode(TransformFunctionWrapper.fromJsonObject(new JSONObject().put("type", LangTypeV2.REPOSITORY_OPERATOR.name).put("functionID", "1").put("functionName", "test").put("functionVersion", "1.0.0")))
+    val mockOp = new MockTransformerNode(TransformFunctionWrapper.fromJsonObject(new JSONObject().put("functionName", "").put("type", LangTypeV2.REPOSITORY_OPERATOR.name).put("id", "1").put("className", "test").put("functionVersion", "1.0.0").put("params", new JSONObject())))
     val mockThread = new Thread()
     val mockFuture = Future.successful(DefaultDataFrame(StructType.empty, Iterator.empty))
 
@@ -60,7 +63,7 @@ class FlowExecutionContextTest {
 
   @Test
   def testGetAsyncThreads_ReturnsNoneDueToBug(): Unit = {
-    val mockOp = new MockTransformerNode(TransformFunctionWrapper.fromJsonObject(new JSONObject().put("type", LangTypeV2.REPOSITORY_OPERATOR.name).put("functionID", "1").put("functionName", "test").put("functionVersion", "1.0.0")))
+    val mockOp = new MockTransformerNode(TransformFunctionWrapper.fromJsonObject(new JSONObject().put("type", LangTypeV2.REPOSITORY_OPERATOR.name).put("functionName", "").put("id", "1").put("className", "test").put("functionVersion", "1.0.0").put("params", new JSONObject())))
     val mockThread = new Thread()
     val mockFuture = Future.successful(DefaultDataFrame(StructType.empty, Iterator.empty))
 
