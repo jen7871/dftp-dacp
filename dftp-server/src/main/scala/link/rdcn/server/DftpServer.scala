@@ -217,7 +217,10 @@ class DftpServer(config: DftpServerConfig) extends Logging {
 
         override def attachStream(blobResponse: BlobResponse): Unit = {
           val dftpTicket: DftpTicket = uriPool.registryBlob(blobResponse.getBlob)
-          sendJSONObject(new JSONObject().put("ticket", dftpTicket), 304)
+          sendJSONObject(new JSONObject()
+            .put("ticket", dftpTicket)
+            .put("size", blobResponse.size)
+            .put("blobType", blobResponse.blobType), 304)
         }
 
         override def sendError(errorCode: Int, message: String): Unit = {
