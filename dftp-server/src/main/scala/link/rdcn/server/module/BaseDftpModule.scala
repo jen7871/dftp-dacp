@@ -52,9 +52,15 @@ class BaseDftpModule extends DftpModule with Logging{
                       val dftpGetStreamResponse = new DftpGetStreamResponse {
                         override def sendDataFrame(dataFrame: DataFrame): Unit = result =  Some(dataFrame)
 
-                        override def sendBlob(blob: Blob): Unit = response.attachStream(new BlobResponse {
-                          override def getBlob: Blob = blob
-                        })
+                        override def sendBlob(blob: Blob): Unit = {
+                          response.attachStream(new BlobResponse {
+                            override def getBlob: Blob = blob
+
+                            override def size: Long = blob.size
+
+                            override def blobType: String = blob.blobType
+                          })
+                        }
 
                         override def sendError(errorCode: Int, message: String): Unit = response.sendError(errorCode, message)
                       }

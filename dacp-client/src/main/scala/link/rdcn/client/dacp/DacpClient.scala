@@ -1,5 +1,6 @@
 package link.rdcn.client
 
+import link.rdcn.JobFlowLogger
 import link.rdcn.dacp.catalog.CatalogActionMethodType
 import link.rdcn.dacp.cook.{CookActionMethodType, JobStatus}
 import link.rdcn.dacp.optree._
@@ -134,7 +135,7 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
 
   def getJobStatus(jobId: String): JobStatus = {
     val actionResult = doAction(CookActionMethodType.GET_JOB_STATUS, new JSONObject().put("jobId", jobId))
-    JobStatus.fromString(actionResult.getResultJson().getString("status"))
+    JobStatus.fromJSON(actionResult.getResultJson())
   }
 
   def getJobExecuteProcess(jobId: String): Double = {
@@ -167,27 +168,30 @@ class DacpClient(host: String, port: Int, useTLS: Boolean = false) extends DftpC
   private def transformFlowToOperation(path: FlowPath): TransformOp = {
     path.node match {
       case f: Transformer11 =>
-        val genericFunctionCall = DataFrameCall11(new SerializableFunction[DataFrame, DataFrame] {
-          override def apply(v1: DataFrame): DataFrame = f.transform(v1)
-        })
-        val transformerNode: TransformerNode = TransformerNode(TransformFunctionWrapper.getJavaSerialized(genericFunctionCall),
+        val flowGenericFunctionCall: FlowGenericFunctionCall = DataFrameCall11(
+          new SerializableFunction[(DataFrame, JobFlowLogger, JSONObject), DataFrame] {
+            override def apply(v1: (DataFrame, JobFlowLogger, JSONObject)): DataFrame =
+              f.transform(v1._1, v1._2, v1._3)
+          })
+        val transformerNode: TransformerNode = TransformerNode(
+          TransformFunctionWrapper.getJavaSerialized(flowGenericFunctionCall),
           transformFlowToOperation(path.children.head))
         transformerNode
       case f: Transformer21 =>
-        val genericFunctionCall = DataFrameCall21(new SerializableFunction[(DataFrame, DataFrame), DataFrame] {
-          override def apply(v1: (DataFrame, DataFrame)): DataFrame = f.transform(v1._1, v1._2)
-        })
+        val genericFunctionCall = DataFrameCall21(
+          new SerializableFunction[((DataFrame, DataFrame), JobFlowLogger, JSONObject), DataFrame] {
+            override def apply(v1: ((DataFrame, DataFrame), JobFlowLogger, JSONObject)): DataFrame = {
+              f.transform(v1._1, v1._2, v1._3)
+            }
+          })
         val leftInput = transformFlowToOperation(path.children.head)
         val rightInput = transformFlowToOperation(path.children.last)
-        val transformerNode: TransformerNode = TransformerNode(TransformFunctionWrapper.getJavaSerialized(genericFunctionCall), leftInput, rightInput)
+        val transformerNode: TransformerNode = TransformerNode(TransformFunctionWrapper.getJavaSerialized(genericFunctionCall),
+          leftInput, rightInput)
         transformerNode
       case node: RepositoryNode =>
-        val jo = new JSONObject()
-        jo.put("type", LangTypeV2.REPOSITORY_OPERATOR.name)
-        jo.put("functionName", node.functionName)
-        jo.put("functionVersion", node.functionVersion.orNull)
         val transformerNode: TransformerNode = TransformerNode(
-          TransformFunctionWrapper.fromJsonObject(jo).asInstanceOf[RepositoryOperator],
+          RepositoryOperator(node.functionName, node.functionVersion, node.params, node.id),
           path.children.map(transformFlowToOperation(_)): _*)
         transformerNode
       case FifoFileBundleFlowNode(command, inputFilePath, outputFilePath, dockerContainer) =>

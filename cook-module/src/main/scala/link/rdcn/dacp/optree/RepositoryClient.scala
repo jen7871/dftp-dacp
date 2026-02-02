@@ -31,13 +31,24 @@ import scala.util.{Failure, Success}
  * @Modified By:
  */
 trait OperatorRepository {
-  def parseTransformFunctionWrapper(functionName: String, functionVersion: Option[String], ctx: FlowExecutionContext): TransformFunctionWrapper
+  def parseTransformFunctionWrapper(functionName: String,
+                                    functionVersion: Option[String],
+                                    params: JSONObject,
+                                    ctx: FlowExecutionContext,
+                                    id: String
+                                   ): TransformFunctionWrapper
 }
 
 class RepositoryClient(host: String = "http://10.0.89.39", port: Int = 8090) extends OperatorRepository {
 
-  override def parseTransformFunctionWrapper(functionName: String, functionVersion: Option[String], ctx: FlowExecutionContext): TransformFunctionWrapper = {
+  override def parseTransformFunctionWrapper(functionName: String,
+                                             functionVersion: Option[String],
+                                             params: JSONObject,
+                                             ctx: FlowExecutionContext,
+                                             id: String
+                                            ): TransformFunctionWrapper = {
     val client: OperatorClient = OperatorClient.connect(s"$host:$port", null)
+
     val operatorInfo = new JSONObject(client.getOperatorByNameAndVersion(functionName, functionVersion.orNull))
     if (operatorInfo.has("data") && operatorInfo.getJSONObject("data").getString("type") == "python-script") {
       val operatorImage = operatorInfo.getJSONObject("data").getString("nexusUrl")
@@ -79,18 +90,20 @@ class RepositoryClient(host: String = "http://10.0.89.39", port: Int = 8090) ext
     } else {
       val operatorDir = ctx.fairdHome
       val inputStream: InputStream = client.downloadOperatorAsStream(functionName, functionVersion.get)
-      val operatorFunctionName = operatorInfo.getJSONObject("data").getString("language")
-      val className = operatorInfo.getJSONObject("data").getString("help")
+      val specialProperties = operatorInfo.getJSONObject("data").getJSONObject("specialProperties")
       operatorInfo.getJSONObject("data").getString("type") match {
         case LangTypeV2.JAVA_JAR.name =>
+          val operatorFunctionName = specialProperties.getString("functionName")
+          val className = specialProperties.getString("className")
           val packageFile = Paths.get(operatorDir, "lib", s"$functionName-${functionVersion.get}.jar").toFile
           saveInputStreamToFile(inputStream, packageFile)
-          JavaJar(packageFile.getAbsolutePath, operatorFunctionName, className)
+          JavaJar(packageFile.getAbsolutePath, operatorFunctionName, className, params, id)
         case LangTypeV2.CPP_BIN.name =>
           val packageFile = Paths.get(operatorDir, "lib", s"$functionName-${functionVersion.get}.cpp").toFile
           saveInputStreamToFile(inputStream, packageFile)
           CppBin(packageFile.getAbsolutePath)
         case LangTypeV2.PYTHON_BIN.name =>
+          val operatorFunctionName = specialProperties.getString("functionName")
           val packageFile = Paths.get(operatorDir, "lib", s"$functionName-${functionVersion.get}.whl").toFile
           PythonBin(operatorFunctionName, packageFile.getAbsolutePath)
         case _ => throw new IllegalArgumentException(s"Unsupported operator type: ${operatorInfo.get("type")}")

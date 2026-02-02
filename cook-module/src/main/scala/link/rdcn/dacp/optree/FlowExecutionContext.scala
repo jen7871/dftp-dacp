@@ -54,6 +54,8 @@ trait FlowExecutionContext extends link.rdcn.operation.ExecutionContext with Log
     }
   }
 
+  def getJobId(): String
+
   def getAsyncResult(transformOp: TransformOp): Option[Future[DataFrame]] = {
     Option(asyncResults.get(transformOp))
   }

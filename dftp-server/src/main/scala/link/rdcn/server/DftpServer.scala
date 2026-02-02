@@ -30,7 +30,6 @@ import java.util.concurrent.locks.LockSupport
 import java.util.{Optional, UUID}
 import scala.collection.JavaConverters._
 import scala.collection.concurrent.TrieMap
-import scala.concurrent.duration.Duration
 
 /**
  * @Author renhao
@@ -173,7 +172,7 @@ class DftpServer(config: DftpServerConfig) extends Logging {
         .authHandler(new FlightServerAuthHandler)
         .build()
     }
-
+    logger.info(s"server started at ${config.protocolScheme}://${config.host}:${config.port}")
     modules.addModule(kernelModule)
     modules.init()
   }
@@ -218,7 +217,10 @@ class DftpServer(config: DftpServerConfig) extends Logging {
 
         override def attachStream(blobResponse: BlobResponse): Unit = {
           val dftpTicket: DftpTicket = uriPool.registryBlob(blobResponse.getBlob)
-          sendJSONObject(new JSONObject().put("ticket", dftpTicket), 304)
+          sendJSONObject(new JSONObject()
+            .put("ticket", dftpTicket)
+            .put("size", blobResponse.size)
+            .put("blobType", blobResponse.blobType), 304)
         }
 
         override def sendError(errorCode: Int, message: String): Unit = {
