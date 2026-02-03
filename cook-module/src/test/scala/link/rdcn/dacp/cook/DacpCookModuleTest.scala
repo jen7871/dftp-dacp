@@ -4,7 +4,7 @@
  * @Data 2025/11/6 15:10
  * @Modified By:
  */
-package link.rdcn.cook
+package link.rdcn.dacp.cook
 
 import link.rdcn.dacp.cook.DacpCookModule
 import link.rdcn.message.DftpTicket.DftpTicket

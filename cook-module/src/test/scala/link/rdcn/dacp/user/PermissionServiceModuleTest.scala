@@ -4,15 +4,13 @@
  * @Data 2025/11/6 15:06
  * @Modified By:
  */
-package link.rdcn.user
+package link.rdcn.dacp.user
 
-import link.rdcn.dacp.user.{DataOperationType, PermissionService, PermissionServiceModule, RequirePermissionServiceEvent}
 import link.rdcn.server._
 import link.rdcn.server.module.Workers
-import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertNotNull, assertTrue}
+import link.rdcn.user.UserPrincipal
+import org.junit.jupiter.api.Assertions.{assertFalse, assertNotNull, assertTrue}
 import org.junit.jupiter.api.{BeforeEach, Test}
-
-import scala.collection.mutable.ArrayBuffer
 
 class PermissionServiceModuleTest {
 
@@ -24,16 +22,25 @@ class PermissionServiceModuleTest {
 
   class MockAnchor extends Anchor {
     var hookedHandler: EventHandler = _
+
     override def hook(service: EventSource): Unit = {}
-    override def hook(service: EventHandler): Unit = { hookedHandler = service }
+
+    override def hook(service: EventHandler): Unit = {
+      hookedHandler = service
+    }
   }
 
   class MockServerContext extends ServerContext {
     override def getHost(): String = "mock-host"
+
     override def getPort(): Int = 0
+
     override def getProtocolScheme(): String = "dftp"
+
     override def getDftpHome(): Option[String] = None
+
     override def registry(dataframe: link.rdcn.struct.DataFrame): link.rdcn.message.DftpTicket.DftpTicket = "mock-ticket-df"
+
     override def registry(blob: link.rdcn.struct.Blob): link.rdcn.message.DftpTicket.DftpTicket = "mock-ticket-blob"
   }
 
