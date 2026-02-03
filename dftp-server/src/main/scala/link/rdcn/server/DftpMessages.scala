@@ -69,4 +69,6 @@ trait DataFrameResponse {
 
 trait BlobResponse {
   def getBlob: Blob
+  def size: Long
+  def blobType: String
 }

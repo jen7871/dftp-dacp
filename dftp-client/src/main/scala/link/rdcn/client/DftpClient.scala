@@ -103,20 +103,32 @@ class DftpClient(host: String, port: Int, useTLS: Boolean = false) extends Loggi
     )
   }
 
+  def openBlob(url: String): BlobHandler = {
+    val responseJson = doAction(ActionMethodType.GET, SourceOp(url).toJsonString).getResultJson()
+
+    new BlobHandler {
+      override def getBlobSize: Long = responseJson.getLong("size")
+
+      override def getBlobType: String = responseJson.getString("ticket")
+
+      override def getDataFrameTicket: DftpTicket = responseJson.getString("blobType")
+    }
+
+  }
+
   def getBlob(url: String): Blob = {
-    val df = RemoteDataFrameProxy(SourceOp(validateUrl(url)), getStream, openDataFrame)
+    val blobHandler = openBlob(url)
+
     new Blob {
       override def offerStream[T](consume: InputStream => T): T = {
-        val inputStream = df.mapIterator[InputStream](iter => {
-          val chunkIterator = iter.map(value => {
-            assert(value.values.length == 1)
-            value._1 match {
-              case v: Array[Byte] => v
-              case other => throw new Exception(s"Blob parsing failed: expected Array[Byte], but got ${other}")
-            }
-          })
-          DataUtils.convertIteratorToInputStream(chunkIterator)
+        val chunkIterator = getStream(blobHandler.getDataFrameTicket).map(value => {
+          assert(value.values.length == 1)
+          value._1 match {
+            case v: Array[Byte] => v
+            case other => throw new Exception(s"Blob parsing failed: expected Array[Byte], but got ${other}")
+          }
         })
+        val inputStream = DataUtils.convertIteratorToInputStream(chunkIterator)
         consume(inputStream)
       }
     }
