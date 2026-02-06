@@ -1,59 +1,67 @@
 package link.rdcn.server
 
-import link.rdcn.message.MapSerializer
-import link.rdcn.operation.TransformOp
-import link.rdcn.struct.DataFrame
+import link.rdcn.struct.{Blob, DataFrame}
 import link.rdcn.user.UserPrincipal
+import org.json.JSONObject
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.Test
 
 class DftpMessagesTest {
 
-  // --- Local Mocks to test Trait default methods ---
+  // --- Local Mocks ---
 
-  class MockActionRequest(param: Array[Byte]) extends DftpActionRequest {
-    override def getActionName(): String = "testAction"
-    override def getParameter(): Array[Byte] = param
+  // Mock Request implementor
+  class MockActionRequest(params: JSONObject) extends DftpActionRequest {
+    override def getActionName(): String = "mockAction"
+    override def getRequestParameters(): JSONObject = params
     override def getUserPrincipal(): UserPrincipal = null
   }
 
-  class MockPlainResponse extends DftpPlainResponse {
-    var sentData: Array[Byte] = _
-    override def sendData(data: Array[Byte]): Unit = sentData = data
+  // Mock Response implementor with default method support
+  class MockActionResponse extends DftpActionResponse {
+    var sentJsonString: String = _
+    var sentCode: Int = -1
+
+    override def sendJSONString(json: String, code: Int): Unit = {
+      sentJsonString = json
+      sentCode = code
+    }
+
+    // Other methods mocked as empty
+    override def attachStream(dataFrameResponse: DataFrameResponse): Unit = {}
+    override def attachStream(blobResponse: BlobResponse): Unit = {}
+    override def sendPutDataFrameParameters(json: JSONObject, code: Int): Unit = {}
+    override def sendPutBlobParameters(json: JSONObject, code: Int): Unit = {}
     override def sendError(errorCode: Int, message: String): Unit = {}
-  }
-
-  class MockPutStreamRequest(df: DataFrame) extends DftpPutStreamRequest {
-    override def getDataFrame(): DataFrame = df
-    override def getUserPrincipal(): UserPrincipal = null
   }
 
   // --- Tests ---
 
   @Test
-  def testDftpActionRequest_GetParameterAsMap(): Unit = {
-    val originalMap = Map("key1" -> "value1", "key2" -> 123)
-    val encodedBytes = MapSerializer.encodeMap(originalMap)
-    val request = new MockActionRequest(encodedBytes)
+  def testDftpRequest_Attributes(): Unit = {
+    // DftpRequest trait has a mutable map 'attributes' by default
+    val request = new MockActionRequest(new JSONObject())
+    request.attributes.put("key", "value")
 
-    val decodedMap = request.getParameterAsMap()
-
-    assertEquals("value1", decodedMap("key1"), "Should decode String value correctly")
-    assertEquals(123, decodedMap("key2"), "Should decode Int value correctly")
+    assertEquals("value", request.attributes("key"), "Should be able to store and retrieve attributes")
   }
 
   @Test
-  def testDftpPlainResponse_SendDataMap(): Unit = {
-    val response = new MockPlainResponse()
-    val mapToSend = Map("status" -> "ok")
+  def testDftpActionResponse_SendJsonObject(): Unit = {
+    val response = new MockActionResponse()
+    val json = new JSONObject()
+    json.put("status", "success")
+    json.put("id", 123)
 
-    // Call default method
-    response.sendData(mapToSend)
+    // Call the default method sendJsonObject
+    response.sendJSONObject(json, 202)
 
-    assertNotNull(response.sentData, "sendData(Map) should invoke sendData(Array[Byte])")
+    // Verify it delegated to sendJsonString
+    assertNotNull(response.sentJsonString, "sendJsonObject should delegate to sendJsonString")
+    assertEquals(202, response.sentCode, "Status code should be passed through")
 
-    // Verify encoding
-    val decoded = MapSerializer.decodeMap(response.sentData)
-    assertEquals("ok", decoded("status"), "Encoded data should match original map")
+    val receivedJson = new JSONObject(response.sentJsonString)
+    assertEquals("success", receivedJson.getString("status"), "JSON content should match")
+    assertEquals(123, receivedJson.getInt("id"), "JSON content should match")
   }
 }

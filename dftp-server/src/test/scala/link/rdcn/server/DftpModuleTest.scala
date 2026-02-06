@@ -1,6 +1,8 @@
 package link.rdcn.server
 
-import org.junit.jupiter.api.Assertions.{assertTrue, assertEquals}
+import link.rdcn.message.DftpTicket.DftpTicket
+import link.rdcn.struct.{Blob, DataFrame}
+import org.junit.jupiter.api.Assertions.{assertTrue}
 import org.junit.jupiter.api.Test
 
 class DftpModuleTest {
@@ -37,6 +39,9 @@ class DftpModuleTest {
     override def getPort(): Int = 0
     override def getProtocolScheme(): String = "dftp"
     override def getDftpHome(): Option[String] = None
+    // Implement missing registry methods
+    override def registry(dataframe: DataFrame): DftpTicket = "mock-ticket-df"
+    override def registry(blob: Blob): DftpTicket = "mock-ticket-blob"
   }
 
   // --- Tests ---
